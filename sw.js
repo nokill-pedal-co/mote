@@ -1,7 +1,8 @@
 // Mote service worker: keeps the game on the device so it opens with no signal at all.
 // build.py stamps VERSION, so every build gets a fresh cache and the old one is cleared out.
-const VERSION = '20261125-021432';
+const VERSION = '20261125-123526';
 const CACHE = 'mote-' + VERSION;
+const VOICE = 'mote-voice';        // the narrator's recordings outlive a new build
 const CORE = ['index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -10,13 +11,13 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k.startsWith('mote-') && k !== CACHE).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k.startsWith('mote-') && k !== CACHE && k !== VOICE).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
 // Only good answers are kept: an error page or a hotel wifi sign-in must never replace the game.
 function keep(key, res) {
-  if (res && res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then(c => c.put(key, copy)).catch(() => {}); }
+  if (res && res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(typeof key !== 'string' && key.url.indexOf('/voice/') >= 0 ? VOICE : CACHE).then(c => c.put(key, copy)).catch(() => {}); }
   return res;
 }
 

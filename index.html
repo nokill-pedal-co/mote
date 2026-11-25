@@ -2981,7 +2981,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
       T.visitor -= dt;
       if (T.visitor <= 0 && !c.morph) {
         T.visitor = this.rr(70, 160);
-        if (s.visitors.length < 3) {
+        if (s.visitors.length < 2) {
           const here = s.world.id, night = s.env.night;
           const pool = D.SPECIES.filter(q => s.stage >= q.stage[0] && s.stage <= q.stage[1] && (q.only ? q.only.indexOf(here) >= 0 : true) && (!q.night || night));
           let total = 0;
@@ -3532,19 +3532,19 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
 
 </script>
 <script>
-// Draws living bodies from their genes, in the manner of a darkfield microscope: hair-thin
-// lines of light, clear bodies, and the workings inside on show. Six body plans from one genome:
-// protocell, rod, complex cell, a hollow colony, a wheel-crowned rotifer, and a water bear.
+// Draws the living as forms of light, not as animals. Seen from far enough away a drop of water
+// and a deep field of sky look alike: points, rings, spirals and filaments on black. Each age
+// has its own form, and the genes set its colour, count, twist and reach. Nothing here has a
+// face, a mouth or a leg.
 (function () {
   'use strict';
   const M = globalThis.MOTE = globalThis.MOTE || {};
   const U = M.U, D = M.DATA, TAU = U.TAU, hsl = U.hsl;
   const B = M.Body = {};
+  const c01 = U.clamp01;
 
   B.unit = 1;                 // world units per screen pixel, set by the renderer each frame
-  const anim = new Map();     // per-body state: the chain of a jointed body
   const px = (ctx, n) => { ctx.lineWidth = n * B.unit; };       // hairlines stay hair-thin at any zoom
-  let LOD = 0;                // 1 while drawing one of the crowd: fewer strokes, less grain, no halos
 
   // ---------------------------------------------------------------- light
 
@@ -3576,611 +3576,279 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
 
   // ---------------------------------------------------------------- what the genes build
 
+  const FORMS = ['spark', 'streak', 'cell', 'cluster', 'spiral', 'lens', 'pulsar', 'dendrite', 'system', 'crystal'];
   B.spec = function (g, stage, traits) {
     const st = D.STAGES[stage], v = g.v, has = {};
     for (const t of traits || []) has[t] = 1;
-    const plan = stage === 0 ? 'proto' : stage === 1 ? 'rod' : stage === 2 ? 'euk' : stage === 3 ? 'volvox' : stage === 4 ? 'rotifer' : 'bear';
-    const sp = { stage, kind: st.kind, plan, has, v, hue: v.hue * 360, sat: 14 + 34 * v.sat, glow: 0.5 + 0.6 * v.lum };
-    if (plan === 'proto') { sp.aspect = 1; sp.wob = 0.1 * (0.5 + v.wob); }
-    else if (plan === 'rod') { sp.aspect = 1.5 + 0.5 * v.long; sp.wob = 0.03 * (0.5 + v.wob); }
-    else if (plan === 'euk') { sp.aspect = 1.15 + 0.4 * v.long; sp.wob = 0.045 * (0.5 + v.wob); }
-    else if (plan === 'volvox') { sp.n = has.adhesion ? 76 : 50; }
-    else if (plan === 'rotifer') { sp.K = 8; sp.len = 5.6 * (0.85 + 0.35 * v.long); sp.prof = [0.8, 0.62, 0.92, 1.02, 0.9, 0.52, 0.3, 0.17]; }
-    else { sp.K = 6; sp.len = 4.3 * (0.9 + 0.25 * v.long); sp.prof = [0.72, 1.0, 1.12, 1.1, 0.96 - 0.1 * v.taper, 0.62 - 0.14 * v.taper]; }
-    return sp;
+    return {
+      stage, kind: st.kind, plan: FORMS[Math.min(stage, FORMS.length - 1)], has, v,
+      hue: v.hue * 360, sat: 14 + 34 * v.sat, glow: 0.5 + 0.6 * v.lum,
+      seed: Math.floor(v.hue * 977 + v.long * 131 + v.wob * 71 + v.tone * 37),
+      ecc: 1 + 0.6 * v.long,                        // how drawn-out
+      arms: 2 + Math.floor(v.limb * 2.99),          // 2..4
+      branches: 3 + Math.floor(v.fin * 3.99),       // 3..6
+      hairs: 12 + Math.floor(v.crest * 22),
+      rings: 2 + Math.floor(v.stripe * 2.99),       // 2..4
+      specks: 5 + Math.floor(v.spots * 12),
+      twist: 0.7 + 1.1 * v.tail,
+      spin: 0.18 + 0.5 * v.metab,
+      soft: 0.5 + v.wob,
+    };
   };
 
   // The pen: one hue, quiet colour, light on dark.
-  function pen(sp, o) {
-    const dim = o.dormant ? 0.5 : 1, sat = sp.sat * (o.dormant ? 0.3 : 1), hue = sp.hue;
-    const hurt = o.hurt > 0.05;
+  function pen(sp, o, live) {
+    const sat = sp.sat * (o.dormant ? 0.25 : 1), hue = sp.hue, hurt = o.hurt > 0.05;
     return {
-      hue, sat, dim,
-      ink: (a, l) => (hurt && a > 0.6 ? hsl(355, 70, 76, a) : hsl(hue, sat, 84 + (l || 0), a * dim)),
-      fill: a => hsl(hue, sat + 10, 55, a * dim),
-      acc: (a, l) => hsl(hue + 38, sat + 18, 78 + (l || 0), a * dim),
+      hue, sat,
+      ink: (a, l) => (hurt && a > 0.5 ? hsl(355, 70, 76, a * live) : hsl(hue, sat, 84 + (l || 0), a * live)),
+      acc: (a, l) => hsl(hue + 38, sat + 18, 78 + (l || 0), a * live),
     };
   }
 
-  // ---------------------------------------------------------------- jointed bodies follow their heads
+  B.forget = () => {};
+  B.prune = () => {};
 
-  function chain(id, x, y, ang, R, sp) {
-    let a = anim.get(id);
-    const seg = R * sp.len / sp.K;
-    if (!a) { a = {}; anim.set(id, a); }
-    if (!a.p || a.p.length !== sp.K || Math.hypot(a.p[0].x - x, a.p[0].y - y) > R * 5 + 60) {
-      a.p = [];
-      for (let i = 0; i < sp.K; i++) a.p.push({ x: x - Math.cos(ang) * seg * i, y: y - Math.sin(ang) * seg * i });
-    }
-    const p = a.p;
-    p[0].x = x; p[0].y = y;
-    let prev = ang + Math.PI;
-    for (let i = 1; i < sp.K; i++) {
-      let dir = Math.atan2(p[i].y - p[i - 1].y, p[i].x - p[i - 1].x);
-      dir = prev + U.clamp(U.angDiff(prev, dir), -0.5, 0.5);        // a body only bends so far
-      p[i].x = p[i - 1].x + Math.cos(dir) * seg; p[i].y = p[i - 1].y + Math.sin(dir) * seg;
-      prev = dir;
-    }
-    return a;
-  }
-  B.forget = id => { if (id === undefined) anim.clear(); else anim.delete(id); };
-  // Keep only the bodies still in the water (ids is a Set).
-  B.prune = ids => { for (const k of anim.keys()) if (k !== 'main' && !ids.has(k)) anim.delete(k); };
-
-  // Smooth closed outline through points.
-  function blob(ctx, pts) {
-    const n = pts.length;
-    ctx.beginPath();
-    ctx.moveTo((pts[n - 1].x + pts[0].x) / 2, (pts[n - 1].y + pts[0].y) / 2);
-    for (let i = 0; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; ctx.quadraticCurveTo(a.x, a.y, (a.x + b.x) / 2, (a.y + b.y) / 2); }
-    ctx.closePath();
-  }
-  const dot = (ctx, x, y, r) => { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, TAU); };
-  // Stroke the current path the way an edge looks under darkfield: a wide soft scatter of
-  // light, a tighter halo, then the bright line itself.
-  function rim(ctx, P, k) {
-    k = k === undefined ? 1 : k;
-    if (!LOD) { ctx.strokeStyle = P.ink(0.07 * k); px(ctx, 9); ctx.stroke(); }
-    ctx.strokeStyle = P.ink((LOD ? 0.13 : 0.16) * k); px(ctx, LOD ? 3.2 : 4); ctx.stroke();
-    ctx.strokeStyle = P.ink(0.95 * k, 8); px(ctx, 1.3); ctx.stroke();
-  }
-  // Fill the current path as a body: first dark, so it hides whatever is behind it (a crowd
-  // should overlap like glass, not add up to white), then its own faint light.
-  function solid(ctx, P, a) {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(2,5,8,0.74)'; ctx.fill();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = P.fill(a); ctx.fill();
-  }
-  // Grain: the sparkle of small things inside a body. at(i) gives each speck's place.
-  function grain(ctx, P, n, t, at, big) {
+  // Points of light, batched by brightness so a body is three fills, not sixty.
+  function Points() { this.b = [[], [], []]; }
+  Points.prototype.add = function (x, y, k, size) { this.b[k > 0.75 ? 2 : k > 0.4 ? 1 : 0].push(x, y, size || 1); };
+  Points.prototype.flush = function (ctx, P) {
     const u = B.unit;
-    if (LOD) n = Math.ceil(n * 0.3);
     for (let pass = 0; pass < 3; pass++) {
-      ctx.fillStyle = pass === 2 ? P.ink(0.95, 12) : P.ink(pass ? 0.55 : 0.28);
+      const a = this.b[pass];
+      if (!a.length) continue;
+      ctx.fillStyle = pass === 2 ? P.ink(1, 12) : P.ink(pass ? 0.6 : 0.3);
       ctx.beginPath();
-      for (let i = pass; i < n; i += 3) {
-        const p = at(i), tw = 0.6 + 0.4 * Math.sin(t * (1.5 + (i % 5) * 0.4) + i * 1.7), r = (pass === 2 ? 1.05 : 0.75) * (big || 1) * tw * u;
-        ctx.rect(p.x - r, p.y - r, r * 2, r * 2);
-      }
+      for (let i = 0; i < a.length; i += 3) { const r = (pass === 2 ? 1.1 : 0.8) * a[i + 2] * u; ctx.rect(a[i] - r, a[i + 1] - r, r * 2, r * 2); }
       ctx.fill();
     }
-  }
-  const scaled = (pts, k) => pts.map(p => ({ x: p.x * k, y: p.y * k }));
-
-  // ---------------------------------------------------------------- protocell: a bubble holding itself together
-
-  function drawProto(ctx, sp, o) {
-    const R = o.R, t = o.t, P = pen(sp, o), u = B.unit;
-    const breath = 1 + 0.03 * Math.sin(t * 1.5) + 0.07 * o.eat + 0.05 * o.pet;
-    ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.ang); ctx.globalCompositeOperation = 'lighter';
-    B.glow(ctx, 0, 0, R * (2.4 + o.flash), P.hue, P.sat + 20, 70, (0.16 + 0.16 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
-    const pts = [];
-    for (let i = 0; i < 34; i++) {
-      const a = i / 34 * TAU, k = breath * (1 + sp.wob * (U.noise(i * 0.5 + t * 0.6, 3) + 0.6 * U.noise(i * 1.2 - t * 0.45, 9)) * (o.dormant ? 0.15 : 1));
-      pts.push({ x: Math.cos(a) * R * k, y: Math.sin(a) * R * k });
-    }
-    blob(ctx, pts); solid(ctx, P, 0.07);
-    rim(ctx, P);
-    blob(ctx, scaled(pts, 0.9)); ctx.strokeStyle = P.ink(0.3); px(ctx, 0.9); ctx.stroke();
-    if (o.dormant) { for (const k of [1.09, 1.18]) { blob(ctx, scaled(pts, k)); ctx.strokeStyle = P.ink(0.5); px(ctx, 1.1); ctx.stroke(); } }
-    ctx.save(); blob(ctx, scaled(pts, 0.88)); ctx.clip();
-    { const sl = o.dormant ? 0.03 : 0.28; grain(ctx, P, 70, t, i => ({ x: R * 0.82 * U.noise(t * sl + i * 7.13, i), y: R * 0.82 * U.noise(t * sl + i * 3.71, i + 50) }), 1.15); }
-    ctx.strokeStyle = P.acc(0.6); px(ctx, 0.9); ctx.beginPath();
-    for (let i = 0; i < 4; i++) dot(ctx, R * 0.5 * U.noise(t * 0.12 + i * 5.3, i + 80), R * 0.5 * U.noise(t * 0.12 + i * 9.1, i + 90), R * (0.07 + 0.03 * i));
-    ctx.stroke();
-    ctx.restore();
-    ctx.beginPath(); ctx.arc(0, 0, R * 0.78, -2.35, -1.75); ctx.strokeStyle = P.ink(0.4, 10); px(ctx, 1.5); ctx.lineCap = 'round'; ctx.stroke();
-    ctx.restore();
-  }
-
-  // ---------------------------------------------------------------- rod: the first true cell
-
-  function drawRod(ctx, sp, o) {
-    const R = o.R, t = o.t, P = pen(sp, o), u = B.unit, has = sp.has, v = sp.v;
-    const a = R * sp.aspect * 0.92 * (1 + 0.04 * o.eat), b = R * 0.6 * (1 + 0.05 * o.eat + 0.04 * o.pet);
-    ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.ang); ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    B.glow(ctx, 0, 0, a * (1.9 + o.flash), P.hue, P.sat + 20, 70, (0.15 + 0.16 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
-    // the whip
-    {
-      const L = R * (has.flagellum ? 3.2 + 2.6 * v.tail : 0.9), w = 5 + 9 * o.speed, n = 44;
-      ctx.beginPath();
-      for (let i = 0; i <= n; i++) { const k = i / n, x = -a - k * L, y = Math.sin(k * (has.flagellum ? 11 : 4) - t * w) * R * 0.2 * Math.min(1, k * 5) * (o.dormant ? 0.1 : 1); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
-      ctx.strokeStyle = P.ink(0.7); px(ctx, 1.05); ctx.stroke();
-    }
-    const pts = [];
-    for (let i = 0; i < 40; i++) {
-      const th = i / 40 * TAU, c = Math.cos(th), s = Math.sin(th), k = 1 + sp.wob * U.noise(i * 0.5 + t * 0.5, 4);
-      pts.push({ x: Math.sign(c) * Math.pow(Math.abs(c), 0.62) * a * k, y: Math.sign(s) * Math.pow(Math.abs(s), 0.9) * b * k });
-    }
-    if (has.pili) {
-      ctx.beginPath();
-      for (let i = 0; i < 40; i += 2) { const p = pts[i], d = Math.hypot(p.x, p.y) || 1, len = R * (0.34 + 0.2 * U.hash(i)), sw = Math.sin(t * 1.4 + i) * 0.12; ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + (p.x / d * Math.cos(sw) - p.y / d * Math.sin(sw)) * len, p.y + (p.y / d * Math.cos(sw) + p.x / d * Math.sin(sw)) * len); }
-      ctx.strokeStyle = P.ink(0.42); px(ctx, 0.8); ctx.stroke();
-    }
-    if (has.capsule) { ctx.fillStyle = P.ink(0.4); ctx.beginPath(); for (let i = 0; i < 40; i++) { dot(ctx, pts[i].x * 1.2, pts[i].y * 1.3, 0.8 * u); dot(ctx, pts[i].x * 1.3 + u, pts[i].y * 1.45, 0.6 * u); } ctx.fill(); }
-    blob(ctx, pts); solid(ctx, P, 0.08);
-    rim(ctx, P);
-    blob(ctx, pts.map(p => ({ x: p.x * 0.93, y: p.y * 0.84 }))); ctx.strokeStyle = P.ink(0.28); px(ctx, 0.9); ctx.stroke();
-    if (o.dormant) { blob(ctx, pts.map(p => ({ x: p.x * 1.08, y: p.y * 1.16 }))); ctx.strokeStyle = P.ink(0.5); px(ctx, 1.2); ctx.stroke(); }
-    // the loose thread of its genes, and the grain it is made of
-    ctx.beginPath();
-    for (let i = 0; i <= 70; i++) { const k = i / 70 * TAU, x = a * 0.6 * Math.sin(2 * k + t * 0.18) * Math.cos(k), y = b * 0.55 * Math.sin(3 * k + 1 + t * 0.13); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
-    ctx.strokeStyle = P.acc(0.6); px(ctx, 0.95); ctx.stroke();
-    grain(ctx, P, 90, t, i => { const ax = (U.hash(i * 3 + 1) * 2 - 1), ay = (U.hash(i * 7 + 2) * 2 - 1) * Math.sqrt(Math.max(0, 1 - ax * ax)); return { x: ax * a * 0.86 + Math.sin(t * 0.7 + i) * u, y: ay * b * 0.74 + Math.cos(t * 0.6 + i * 2) * u }; });
-    ctx.restore();
-  }
-
-  // ---------------------------------------------------------------- the complex cell: rooms inside
-
-  function drawEuk(ctx, sp, o) {
-    const R = o.R, t = o.t, P = pen(sp, o), u = B.unit, has = sp.has, v = sp.v;
-    const a = R * sp.aspect * (1 + 0.03 * o.eat), b = R * 0.9 * (1 + 0.04 * o.eat + 0.04 * o.pet), still = o.dormant ? 0.1 : 1;
-    ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.ang); ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    B.glow(ctx, 0, 0, a * (1.9 + o.flash), P.hue, P.sat + 20, 70, (0.14 + 0.15 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
-    const N = 72, pts = [];
-    for (let i = 0; i < N; i++) {
-      const th = i / N * TAU, c = Math.cos(th), s = Math.sin(th), k = 1 + sp.wob * (U.noise(i * 0.3 + t * 0.5, 4) + 0.5 * U.noise(i * 0.8 - t * 0.4, 8)) * still;
-      pts.push({ x: c * a * k * (1 + 0.05 * c), y: s * b * k * (1 - 0.13 * c) });
-    }
-    if (has.flagellum) {
-      const L = R * (2.2 + 2 * v.tail);
-      ctx.beginPath();
-      for (let i = 0; i <= 36; i++) { const k = i / 36, x = -a - k * L, y = Math.sin(k * 8 - t * (5 + 8 * o.speed)) * R * 0.22 * Math.min(1, k * 5) * still; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
-      ctx.strokeStyle = P.ink(0.65); px(ctx, 1); ctx.stroke();
-    }
-    // a fringe of beating hairs, each a little behind its neighbour
-    {
-      const len = R * (has.cilia ? 0.26 : 0.1);
-      ctx.beginPath();
-      for (let i = 0; i < N; i++) {
-        const p = pts[i], d = Math.hypot(p.x, p.y) || 1, nx = p.x / d, ny = p.y / d, sw = Math.sin(t * (has.cilia ? 11 : 6) - i * 0.55) * 0.55 * still;
-        ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + (nx * Math.cos(sw) - ny * Math.sin(sw)) * len, p.y + (ny * Math.cos(sw) + nx * Math.sin(sw)) * len);
-        if (has.cilia) { const q = pts[(i + 1) % N], mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2; ctx.moveTo(mx, my); ctx.lineTo(mx + (nx * Math.cos(sw + 0.3) - ny * Math.sin(sw + 0.3)) * len * 0.8, my + (ny * Math.cos(sw + 0.3) + nx * Math.sin(sw + 0.3)) * len * 0.8); }
-      }
-      ctx.strokeStyle = P.ink(0.45); px(ctx, 0.75); ctx.stroke();
-    }
-    if (has.capsule) { blob(ctx, scaled(pts, 1.1)); ctx.setLineDash([u, 3 * u]); ctx.strokeStyle = P.ink(0.4); px(ctx, 1.1); ctx.stroke(); ctx.setLineDash([]); }
-    blob(ctx, pts); solid(ctx, P, 0.07);
-    rim(ctx, P);
-    if (o.dormant) { for (const k of [1.07, 1.14]) { blob(ctx, scaled(pts, k)); ctx.strokeStyle = P.ink(0.5); px(ctx, 1.1); ctx.stroke(); } }
-
-    ctx.save(); blob(ctx, scaled(pts, 0.97)); ctx.clip();
-    // the fine ribbing of its skin
-    ctx.beginPath();
-    for (let k = -3; k <= 3; k++) { for (let i = 0; i <= 24; i++) { const x = (i / 24 * 2 - 1) * a * 0.96, y = k / 4 * b * Math.sqrt(Math.max(0, 1 - (x / a) * (x / a))) * (1 - 0.13 * x / a); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); } }
-    ctx.strokeStyle = P.ink(0.11); px(ctx, 0.8); ctx.stroke();
-    const at = (i, rad, sp2) => ({ x: Math.cos(t * sp2 * still + i * 2.4) * a * rad, y: Math.sin(t * sp2 * 1.3 * still + i * 1.7) * b * rad });
-    grain(ctx, P, 150, t, i => { const ax = U.hash(i * 3 + 1) * 2 - 1, ay = (U.hash(i * 7 + 2) * 2 - 1) * Math.sqrt(Math.max(0, 1 - ax * ax)); return { x: ax * a * 0.92 + U.noise(t * 0.25 * still + i, i) * R * 0.06, y: ay * b * 0.9 + U.noise(t * 0.25 * still + i * 3, i + 9) * R * 0.06 }; });
-    // little furnaces, with their folded linings
-    const nMit = has.mitochondria ? 5 : 2;
-    ctx.strokeStyle = hsl(28, 55, 74, 0.7 * P.dim); px(ctx, 0.9);
-    for (let i = 0; i < nMit; i++) {
-      const p = at(i + 9, 0.6, 0.2), an = t * 0.25 * still + i * 2, w = R * 0.15, h = R * 0.065;
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(an);
-      ctx.beginPath(); ctx.ellipse(0, 0, w, h, 0, 0, TAU);
-      for (let k = -2; k <= 2; k++) { ctx.moveTo(k * w * 0.3, -h * 0.7); ctx.lineTo(k * w * 0.3 + w * 0.12, h * 0.7); }
-      ctx.stroke(); ctx.restore();
-    }
-    if (has.chloroplast) {
-      ctx.strokeStyle = hsl(128, 50, 68, 0.75 * P.dim); px(ctx, 0.9);
-      for (let i = 0; i < 7; i++) {
-        const p = at(i + 20, 0.68, 0.14), w = R * 0.15, h = R * 0.085;
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(t * 0.15 * still + i);
-        ctx.beginPath(); ctx.ellipse(0, 0, w, h, 0, 0, TAU);
-        for (const k of [-0.4, 0, 0.4]) { ctx.moveTo(-w * 0.7, k * h); ctx.lineTo(w * 0.7, k * h); }
-        ctx.stroke(); ctx.restore();
-      }
-    }
-    // meals in progress
-    ctx.strokeStyle = P.ink(0.28); px(ctx, 0.8); ctx.beginPath();
-    for (let i = 0; i < 3; i++) { const p = at(i + 60, 0.5, 0.09); dot(ctx, p.x, p.y, R * (0.09 + 0.03 * i)); }
-    ctx.stroke();
-    if (has.toxins) {
-      ctx.strokeStyle = hsl(285, 45, 78, 0.6 * P.dim); px(ctx, 0.9); ctx.beginPath();
-      for (let i = 0; i < N; i += 4) { const p = pts[i]; ctx.moveTo(p.x * 0.93, p.y * 0.93); ctx.lineTo(p.x * 0.8, p.y * 0.8); }
-      ctx.stroke();
-    }
-    // the nucleus
-    const nx = -a * 0.12 + Math.sin(t * 0.3) * R * 0.04 * still, ny = Math.cos(t * 0.24) * R * 0.05 * still;
-    ctx.beginPath(); ctx.ellipse(nx, ny, R * 0.36, R * 0.31, 0.3, 0, TAU);
-    ctx.fillStyle = P.fill(0.13); ctx.fill(); ctx.strokeStyle = P.ink(0.7); px(ctx, 1.1); ctx.stroke();
-    ctx.fillStyle = P.acc(0.55); ctx.beginPath();
-    for (let i = 0; i < 16; i++) dot(ctx, nx + (U.hash(i * 5) - 0.5) * R * 0.52, ny + (U.hash(i * 11) - 0.5) * R * 0.44, 0.8 * u);
-    ctx.fill();
-    ctx.beginPath(); ctx.arc(nx + R * 0.08, ny - R * 0.05, R * 0.1, 0, TAU); ctx.fillStyle = P.acc(0.6); ctx.fill();
-    // the pump that bails it out: fills, then empties
-    {
-      const c = (t * 0.33) % 1, cx = -a * 0.62, cy = b * 0.22, r = R * 0.16 * Math.pow(Math.min(1, c * 1.25), 0.7) * (c > 0.9 ? (1 - c) * 10 : 1);
-      ctx.strokeStyle = P.ink(0.55); px(ctx, 0.9); ctx.beginPath(); dot(ctx, cx, cy, Math.max(0.5 * u, r));
-      if (c < 0.6) for (let k = 0; k < 6; k++) { const an = k / 6 * TAU; ctx.moveTo(cx + Math.cos(an) * R * 0.19, cy + Math.sin(an) * R * 0.19); ctx.lineTo(cx + Math.cos(an) * R * 0.3, cy + Math.sin(an) * R * 0.3); }
-      ctx.stroke();
-    }
-    ctx.restore();
-    // its mouth, a groove
-    ctx.beginPath(); ctx.moveTo(a * 0.78, -b * 0.42); ctx.quadraticCurveTo(a * 0.36, -b * 0.3, a * 0.2, b * 0.08); ctx.strokeStyle = P.ink(0.35); px(ctx, 1); ctx.stroke();
-    if (has.eyespot && !o.dormant) { ctx.beginPath(); ctx.arc(a * 0.66, b * 0.3, Math.max(1.4 * u, R * 0.06), 0, TAU); ctx.fillStyle = hsl(10, 80, 60, 0.95); ctx.fill(); B.glow(ctx, a * 0.66, b * 0.3, R * 0.3, 10, 80, 60, 0.4); }
-    ctx.restore();
-  }
-
-  // ---------------------------------------------------------------- the colony: a hollow sphere of sisters
-
-  const lattices = new Map();
-  function lattice(n) {
-    let L = lattices.get(n);
-    if (L) return L;
-    const pts = [], gold = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < n; i++) { const y = 1 - (i + 0.5) / n * 2, r = Math.sqrt(1 - y * y), th = i * gold; pts.push([Math.cos(th) * r, y, Math.sin(th) * r]); }
-    const links = [];
-    for (let i = 0; i < n; i++) {
-      const d = [];
-      for (let j = 0; j < n; j++) if (j !== i) d.push([(pts[i][0] - pts[j][0]) ** 2 + (pts[i][1] - pts[j][1]) ** 2 + (pts[i][2] - pts[j][2]) ** 2, j]);
-      d.sort((p, q) => p[0] - q[0]);
-      for (let k = 0; k < 3; k++) if (d[k][1] > i || !links.some(l => l[0] === d[k][1] && l[1] === i)) links.push([i, d[k][1]]);
-    }
-    L = { pts, links };
-    lattices.set(n, L);
-    return L;
-  }
-
-  function drawVolvox(ctx, sp, o) {
-    const R = o.R * (1 + 0.03 * Math.sin(o.t * 1.3) + 0.04 * o.eat + 0.03 * o.pet), t = o.t, P = pen(sp, o), u = B.unit, has = sp.has;
-    const L = lattice(sp.n), n = sp.n, still = o.dormant ? 0.05 : 1;
-    const spin = t * 0.22 * still + o.ang * 0.6, tilt = 0.55, cs = Math.cos(spin), sn = Math.sin(spin), ct = Math.cos(tilt), stl = Math.sin(tilt);
-    ctx.save(); ctx.translate(o.x, o.y); ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    B.glow(ctx, 0, 0, R * (2.1 + o.flash), P.hue, P.sat + 20, 70, (0.14 + 0.14 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
-    const q = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const p = L.pts[i], x = p[0] * cs + p[2] * sn, z = -p[0] * sn + p[2] * cs, y = p[1] * ct - z * stl, zz = p[1] * stl + z * ct;
-      q[i] = { x: x * R, y: y * R, z: zz };
-    }
-    // the gel they share, and the daughters growing inside
-    ctx.beginPath(); ctx.arc(0, 0, R * 1.13, 0, TAU); ctx.setLineDash([u, 4 * u]); ctx.strokeStyle = P.ink(0.3); px(ctx, 1); ctx.stroke(); ctx.setLineDash([]);
-    ctx.beginPath(); ctx.arc(0, 0, R * 1.02, 0, TAU); solid(ctx, P, 0.05); rim(ctx, P, o.dormant ? 1 : 0.75);
-    for (let k = 0; k < 4; k++) {
-      const an = t * 0.11 * still + k * 1.7, d = R * (0.32 + 0.12 * (k % 2)), x = Math.cos(an) * d, y = Math.sin(an * 1.2 + k) * d, r = R * (0.15 + 0.03 * k);
-      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.strokeStyle = P.acc(0.4); px(ctx, 0.9); ctx.stroke();
-      ctx.fillStyle = P.acc(0.5); ctx.beginPath(); for (let j = 0; j < 7; j++) dot(ctx, x + Math.cos(j * 0.9 + an) * r * 0.6, y + Math.sin(j * 1.4 + an) * r * 0.6, 0.7 * u); ctx.fill();
-    }
-    grain(ctx, P, 110, t, i => { const an = U.hash(i * 5) * TAU + t * 0.03 * still, d = Math.sqrt(U.hash(i * 11)) * R * 0.95; return { x: Math.cos(an) * d, y: Math.sin(an) * d }; }, 0.85);
-    // strands between sisters: the far side first, faint, then the near side
-    for (const front of [false, true]) {
-      ctx.beginPath();
-      for (const l of L.links) { const a = q[l[0]], b = q[l[1]]; if ((a.z + b.z > 0) !== front) continue; ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
-      ctx.strokeStyle = P.ink(front ? 0.3 : 0.09); px(ctx, 0.8); ctx.stroke();
-    }
-    // each cell rows with two hairs; together they turn the whole sphere
-    ctx.beginPath();
-    for (let i = 0; i < n; i++) {
-      const c = q[i], d = Math.hypot(c.x, c.y);
-      if (d < R * 0.86) continue;
-      const nx = c.x / d, ny = c.y / d, sw = Math.sin(t * 7 * still + i) * 0.4;
-      for (const s of [-0.3, 0.3]) { ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + (nx * Math.cos(sw + s) - ny * Math.sin(sw + s)) * R * 0.12, c.y + (ny * Math.cos(sw + s) + nx * Math.sin(sw + s)) * R * 0.12); }
-      if (has.spines && i % 3 === 0) { ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + nx * R * 0.3, c.y + ny * R * 0.3); }
-    }
-    ctx.strokeStyle = P.ink(0.5); px(ctx, 0.75); ctx.stroke();
-    for (let i = 0; i < n; i++) {
-      const c = q[i], f = U.clamp01(c.z * 0.5 + 0.5), a = 0.2 + 0.75 * f;
-      const shine = has.lumen && i % 5 === 1, ring = has.feeders && i % 3 === 0, green = has.chloroplast && i % 2 === 0;
-      if (shine) B.glow(ctx, c.x, c.y, R * 0.3, P.hue + 40, 80, 78, 0.7 * f * (0.7 + 0.3 * Math.sin(t * 2 + i)) * P.dim);
-      if (f > 0.55 && !ring && !LOD) B.glow(ctx, c.x, c.y, 5 * u * f, P.hue, P.sat + 10, 84, 0.5 * f * P.dim);
-      ctx.beginPath(); ctx.arc(c.x, c.y, (1 + 1.3 * f) * u * (shine ? 1.4 : 1), 0, TAU);
-      if (ring) { ctx.strokeStyle = P.acc(a); px(ctx, 0.9); ctx.stroke(); }
-      else { ctx.fillStyle = green ? hsl(128, 50, 70, a * P.dim) : shine ? P.acc(a, 8) : P.ink(a); ctx.fill(); }
-    }
-    ctx.restore();
-  }
-
-  // ---------------------------------------------------------------- shared geometry for jointed bodies
-
-  function frame(sp, o, a, sway) {
-    const p = a.p, K = sp.K, R = o.R, q = [], nrm = [], rad = [];
-    for (let i = 0; i < K; i++) {
-      const a0 = p[Math.max(0, i - 1)], a1 = p[Math.min(K - 1, i + 1)];
-      let dx = a0.x - a1.x, dy = a0.y - a1.y; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
-      const k = i / (K - 1), off = sway(i, k);
-      nrm.push({ x: -dy, y: dx, fx: dx, fy: dy });
-      q.push({ x: p[i].x - dy * off, y: p[i].y + dx * off });
-      rad.push(sp.prof[i] * R * (1 + 0.04 * o.eat * (1 - k) + 0.03 * o.pet) * (1 + 0.025 * Math.sin(o.t * (o.sleep ? 0.8 : 1.7) - i * 0.5)));
-    }
-    return { q, nrm, rad };
-  }
-  const side = (F, i, s, k) => ({ x: F.q[i].x + F.nrm[i].x * s * F.rad[i] * (k === undefined ? 1 : k), y: F.q[i].y + F.nrm[i].y * s * F.rad[i] * (k === undefined ? 1 : k) });
-  // A point between joints i and i+1, a fraction f along, offset sideways by s radii.
-  const mid = (F, i, f, s) => {
-    const j = Math.min(F.q.length - 1, i + 1), x = U.lerp(F.q[i].x, F.q[j].x, f), y = U.lerp(F.q[i].y, F.q[j].y, f), r = U.lerp(F.rad[i], F.rad[j], f);
-    return { x: x + F.nrm[i].x * s * r, y: y + F.nrm[i].y * s * r, r };
   };
 
-  // ---------------------------------------------------------------- rotifer: the first animal, crowned with wheels
+  // ---------------------------------------------------------------- the ten forms
+  // Each gets K: { x, y, R, t, ca, sa, u, lod, flare, speed, pts } and draws around (x, y).
+  // at(lx, ly): a point in the body's own frame (x forward), turned to face its heading.
 
-  function drawRotifer(ctx, sp, o, a) {
-    const R = o.R, t = o.t, P = pen(sp, o), u = B.unit, has = sp.has, K = sp.K, still = o.dormant || o.sleep ? 0.1 : 1;
-    const F = frame(sp, o, a, (i, k) => Math.sin(t * (2 + 5 * o.speed) - i * 0.8) * R * 0.1 * k * (0.2 + o.speed) * still);
-    const q = F.q, nrm = F.nrm, rad = F.rad, head = q[0], fx = nrm[0].fx, fy = nrm[0].fy, hx = nrm[0].x, hy = nrm[0].y;
-    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'lighter';
-    if (!LOD || o.flash > 0.05) B.glow(ctx, q[3].x, q[3].y, R * (3 + o.flash), P.hue, P.sat + 20, 70, (0.14 + 0.14 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
+  const FORM = {
+    // First Stirring: one point, and a loop of something barely holding together around it.
+    spark(ctx, sp, P, K) {
+      const { x, y, R, t } = K, n = 12;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const a = i / n * TAU, r = R * (0.95 + 0.14 * sp.soft * Math.sin(a * 3 + t * 1.3 + sp.seed) + 0.06 * Math.sin(a * 5 - t * 2));
+        const qx = x + Math.cos(a) * r, qy = y + Math.sin(a) * r;
+        if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy);
+      }
+      ctx.strokeStyle = P.ink(0.1); px(ctx, 4); ctx.stroke();
+      ctx.strokeStyle = P.ink(0.5); px(ctx, 1); ctx.stroke();
+      const m = K.lod ? 3 : Math.min(7, sp.specks);
+      for (let i = 0; i < m; i++) { const a = t * (0.3 + 0.2 * U.hash(i + sp.seed)) + i * 2.4, r = R * (0.25 + 0.5 * U.hash(i * 7 + sp.seed)); K.pts.add(x + Math.cos(a) * r, y + Math.sin(a) * r, 0.3 + 0.5 * U.hash(i)); }
+    },
 
-    // the crown: two wheels of hairs that seem to spin
-    if (!o.dormant) {
-      const turn = t * (3 + 7 * o.speed + 6 * o.eat) * still, wr = R * 0.44;
-      for (const s of [1, -1]) {
-        const cx = head.x + fx * R * 0.62 + hx * s * R * 0.5, cy = head.y + fy * R * 0.62 + hy * s * R * 0.5;
-        ctx.beginPath(); ctx.arc(cx, cy, wr, 0, TAU); ctx.strokeStyle = P.ink(0.55); px(ctx, 1); ctx.stroke();
+    // Bacteria: a short streak with a wake.
+    streak(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, L = R * sp.ecc * 1.1, n = K.lod ? 8 : 14, tail = R * (1.6 + 1.6 * sp.v.tail);
+      ctx.beginPath(); ctx.moveTo(x + ca * L, y + sa * L); ctx.lineTo(x - ca * L, y - sa * L);
+      ctx.strokeStyle = P.ink(0.12); px(ctx, 5); ctx.stroke();
+      ctx.strokeStyle = P.ink(0.9, 8); px(ctx, 1.3); ctx.stroke();
+      K.pts.add(x + ca * L, y + sa * L, 1, 1.2); K.pts.add(x - ca * L * 0.2, y - sa * L * 0.2, 0.6);
+      // the wake: it wags harder the faster it goes
+      ctx.beginPath(); ctx.moveTo(x - ca * L, y - sa * L);
+      for (let i = 1; i <= n; i++) {
+        const k = i / n, d = L + tail * k, w = Math.sin(k * 7 - t * (5 + 9 * K.speed)) * R * 0.35 * k;
+        ctx.lineTo(x - ca * d - sa * w, y - sa * d + ca * w);
+      }
+      ctx.strokeStyle = P.ink(0.3); px(ctx, 0.9); ctx.stroke();
+    },
+
+    // Complex Cells: a ring with a second light inside it, off centre, and a fringe.
+    cell(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, a = R * Math.sqrt(sp.ecc) * 1.05, b = R / Math.sqrt(sp.ecc) * 1.05, rot = Math.atan2(sa, ca);
+      ctx.beginPath(); ctx.ellipse(x, y, a, b, rot, 0, TAU);
+      ctx.strokeStyle = P.ink(0.1); px(ctx, 5); ctx.stroke();
+      ctx.strokeStyle = P.ink(0.85, 8); px(ctx, 1.2); ctx.stroke();
+      if (!K.lod) {
+        const n = sp.hairs;
         ctx.beginPath();
-        for (let k = 0; k < 16; k++) { const an = k / 16 * TAU + turn * s, lean = 0.5 * s; ctx.moveTo(cx + Math.cos(an) * wr, cy + Math.sin(an) * wr); ctx.lineTo(cx + Math.cos(an + lean) * wr * 1.42, cy + Math.sin(an + lean) * wr * 1.42); }
-        ctx.strokeStyle = P.ink(0.7); px(ctx, 0.85); ctx.stroke();
+        for (let i = 0; i < n; i++) {
+          const th = i / n * TAU, w = 0.25 * Math.sin(t * 5 + i * 0.9), len = 0.16 + 0.14 * sp.v.crest;
+          const ex = Math.cos(th) * a, ey = Math.sin(th) * b, ox = Math.cos(th + w) * a * len, oy = Math.sin(th + w) * b * len;
+          ctx.moveTo(x + ex * ca - ey * sa, y + ex * sa + ey * ca); ctx.lineTo(x + (ex + ox) * ca - (ey + oy) * sa, y + (ex + ox) * sa + (ey + oy) * ca);
+        }
+        ctx.strokeStyle = P.ink(0.28); px(ctx, 0.8); ctx.stroke();
       }
-    }
-    if (has.tentacles) {
-      ctx.beginPath();
-      for (const s of [1, -1]) { const b = side(F, 1, s); ctx.moveTo(b.x, b.y); for (let i = 1; i <= 10; i++) { const k = i / 10, w = Math.sin(t * 2 + k * 4 + s) * R * 0.2 * k; ctx.lineTo(b.x + (hx * s * 1.6 - fx * 1.2) * R * k + fx * w, b.y + (hy * s * 1.6 - fy * 1.2) * R * k + fy * w); } }
-      ctx.strokeStyle = P.ink(0.55); px(ctx, 0.85); ctx.stroke();
-    }
-    // the foot ends in two toes
-    {
-      const e = q[K - 1], n = nrm[K - 1];
-      ctx.beginPath();
-      for (const s of [1, -1]) { ctx.moveTo(e.x + n.x * s * rad[K - 1] * 0.6, e.y + n.y * s * rad[K - 1] * 0.6); ctx.lineTo(e.x - n.fx * R * 0.55 + n.x * s * R * 0.2, e.y - n.fy * R * 0.55 + n.y * s * R * 0.2); }
-      ctx.strokeStyle = P.ink(0.85); px(ctx, 1.2); ctx.stroke();
-    }
-    // the body
-    const out = [{ x: head.x + fx * rad[0] * 0.55, y: head.y + fy * rad[0] * 0.55 }];
-    for (let i = 0; i < K; i++) out.push(side(F, i, 1));
-    for (let i = K - 1; i >= 0; i--) out.push(side(F, i, -1));
-    blob(ctx, out); solid(ctx, P, 0.08);
-    rim(ctx, P);
-    if (o.dormant) { ctx.strokeStyle = P.ink(0.4); px(ctx, 3); ctx.stroke(); }
-    ctx.save(); blob(ctx, out); ctx.clip();
-    grain(ctx, P, 110, t, i => mid(F, i % (K - 1), U.hash(i * 3), (U.hash(i * 7) * 2 - 1) * 0.95));
-    // a second wall, glassy (thicker if it has armour), and the rings of the foot
-    ctx.beginPath(); for (const s of [1, -1]) { for (let i = 1; i < K - 2; i++) { const p = side(F, i, s, has.shell ? 0.8 : 0.9); if (i === 1) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); } }
-    ctx.strokeStyle = P.ink(has.shell ? 0.5 : 0.2); px(ctx, has.shell ? 1.2 : 0.8); ctx.stroke();
-    ctx.beginPath(); for (let i = 4; i < K; i++) for (const f of [0, 0.33, 0.66]) { const l = mid(F, i, f, 1), r = mid(F, i, f, -1); ctx.moveTo(l.x, l.y); ctx.lineTo(r.x, r.y); }
-    ctx.strokeStyle = P.ink(0.2); px(ctx, 0.75); ctx.stroke();
-    if (has.muscle) { ctx.beginPath(); for (const s of [0.45, -0.45]) for (let i = 1; i < 6; i++) { const p = side(F, i, s); if (i === 1) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); } ctx.strokeStyle = P.acc(0.4); px(ctx, 1.2); ctx.stroke(); }
-    // the mill in its throat, grinding
-    const chew = (0.5 + 0.5 * Math.sin(t * (4 + 6 * o.eat))) * still, m = q[1], mr = rad[1] * 0.5;
-    ctx.beginPath(); ctx.arc(m.x, m.y, mr, 0, TAU); ctx.strokeStyle = P.acc(0.75); px(ctx, 1); ctx.stroke();
-    ctx.beginPath(); for (const s of [1, -1]) { ctx.moveTo(m.x + fx * mr * 0.7, m.y + fy * mr * 0.7); ctx.quadraticCurveTo(m.x + nrm[1].x * s * mr * (0.25 + 0.5 * chew), m.y + nrm[1].y * s * mr * (0.25 + 0.5 * chew), m.x - fx * mr * 0.6, m.y - fy * mr * 0.6); }
-    ctx.stroke();
-    // stomach, the thread of the gut, and next season's eggs
-    const sA = mid(F, 2, 0.6, 0), ga = Math.atan2(nrm[3].fy, nrm[3].fx);
-    ctx.beginPath(); ctx.ellipse(sA.x, sA.y, R * 0.62, rad[3] * 0.52, ga, 0, TAU); ctx.fillStyle = P.fill(has.gut ? 0.2 : 0.1); ctx.fill(); ctx.strokeStyle = P.ink(0.45); px(ctx, 0.95); ctx.stroke();
-    ctx.fillStyle = o.diet < -0.2 ? hsl(128, 45, 70, 0.55 * P.dim) : o.diet > 0.2 ? hsl(340, 50, 76, 0.55 * P.dim) : P.acc(0.5); ctx.beginPath();
-    for (let i = 0; i < 12; i++) dot(ctx, sA.x + (U.hash(i * 3) - 0.5) * R * 0.9 * Math.cos(ga) + Math.sin(t + i) * u, sA.y + (U.hash(i * 7) - 0.5) * rad[3] * 0.7 + Math.cos(t * 0.8 + i) * u, 0.85 * u);
-    ctx.fill();
-    ctx.beginPath(); ctx.moveTo(sA.x - nrm[3].fx * R * 0.6, sA.y - nrm[3].fy * R * 0.6); ctx.lineTo(q[5].x, q[5].y); ctx.strokeStyle = P.ink(0.3); px(ctx, 0.9); ctx.stroke();
-    ctx.beginPath(); for (const f of [0.1, 0.6]) { const e = mid(F, 3, f, 0.55); dot(ctx, e.x, e.y, R * 0.13); } ctx.strokeStyle = P.acc(0.45); px(ctx, 0.9); ctx.stroke();
-    if (has.chloroplast) { ctx.fillStyle = hsl(128, 50, 68, 0.6 * P.dim); ctx.beginPath(); for (let i = 0; i < 8; i++) { const e = mid(F, 2 + (i % 2), U.hash(i * 5), (U.hash(i * 9) - 0.5) * 1.3); dot(ctx, e.x, e.y, 1.3 * u); } ctx.fill(); }
-    ctx.restore();
-    // one red eye
-    if (!o.dormant) { const ex = head.x + fx * rad[0] * 0.1, ey = head.y + fy * rad[0] * 0.1; ctx.beginPath(); ctx.arc(ex, ey, Math.max(1.3 * u, R * 0.06), 0, TAU); ctx.fillStyle = hsl(8, 80, 58, 0.95); ctx.fill(); B.glow(ctx, ex, ey, R * 0.28, 8, 80, 60, 0.35); }
-    if (!o.dormant) B.glow(ctx, m.x, m.y, mr * (1.6 + o.beat), P.hue + 150, 60, 80, 0.2 + 0.3 * o.beat);
-    ctx.restore();
-  }
+      // the nucleus: a lesser light, held off to one side
+      const nx = x + (a * 0.3) * ca + (b * 0.2) * sa, ny = y + (a * 0.3) * sa - (b * 0.2) * ca;
+      ctx.beginPath(); ctx.arc(nx, ny, R * 0.26, 0, TAU); ctx.strokeStyle = P.acc(0.5); px(ctx, 0.9); ctx.stroke();
+      K.pts.add(nx, ny, 0.9, 1.2);
+      const m = K.lod ? 3 : sp.specks;
+      for (let i = 0; i < m; i++) { const th = t * (0.2 + 0.25 * U.hash(i + sp.seed)) + i * 1.9, k = 0.25 + 0.55 * U.hash(i * 5 + sp.seed), ex = Math.cos(th) * a * k, ey = Math.sin(th) * b * k; K.pts.add(x + ex * ca - ey * sa, y + ex * sa + ey * ca, 0.25 + 0.5 * U.hash(i * 3)); }
+    },
 
-  // ---------------------------------------------------------------- water bear: eight legs, and no sense of danger
+    // Colonies: many small lights on the skin of a turning sphere.
+    cluster(ctx, sp, P, K) {
+      const { x, y, R, t } = K, n = K.lod ? 22 : 34 + sp.specks * 2 + (sp.has.adhesion ? 16 : 0), rot = t * sp.spin, tilt = 0.5, ct = Math.cos(tilt), st = Math.sin(tilt), Rr = R * 1.1;
+      ctx.beginPath(); ctx.arc(x, y, Rr, 0, TAU); ctx.strokeStyle = P.ink(0.22); px(ctx, 0.9); ctx.stroke();
+      for (let i = 0; i < n; i++) {
+        const yy = 1 - (i + 0.5) / n * 2, r = Math.sqrt(1 - yy * yy), th = i * 2.39996 + rot;
+        const X = Math.cos(th) * r, Z0 = Math.sin(th) * r, Y = yy * ct - Z0 * st, Z = yy * st + Z0 * ct;
+        K.pts.add(x + X * Rr, y + Y * Rr, 0.2 + 0.7 * (Z * 0.5 + 0.5) * (i % 7 === 0 ? 1.3 : 0.9), i % 7 === 0 ? 1.3 : 1);
+      }
+    },
 
-  // Asleep in earnest: legs drawn in, body folded to a barrel. The tun.
-  function drawTun(ctx, sp, o) {
-    const R = o.R, P = pen(sp, o);
-    ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.ang); ctx.globalCompositeOperation = 'lighter';
-    B.glow(ctx, 0, 0, R * 2.2, P.hue, P.sat, 70, 0.08);
-    ctx.beginPath(); ctx.ellipse(0, 0, R * 1.25, R * 0.92, 0, 0, TAU); solid(ctx, P, 0.1);
-    ctx.strokeStyle = P.ink(0.85); px(ctx, 2.2); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(0, 0, R * 1.12, R * 0.8, 0, 0, TAU); ctx.strokeStyle = P.ink(0.3); px(ctx, 0.9); ctx.stroke();
-    ctx.beginPath();
-    for (let k = -3; k <= 3; k++) { const x = k / 4 * R * 1.2, h = R * 0.9 * Math.sqrt(Math.max(0, 1 - (x / (R * 1.25)) ** 2)); ctx.moveTo(x, -h); ctx.quadraticCurveTo(x - R * 0.12, 0, x, h); }
-    ctx.strokeStyle = P.ink(0.4); px(ctx, 0.9); ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawBear(ctx, sp, o, a) {
-    if (o.dormant) return drawTun(ctx, sp, o);
-    const R = o.R, t = o.t, P = pen(sp, o), u = B.unit, has = sp.has, v = sp.v, K = sp.K, stage = sp.stage;
-    const still = o.sleep ? 0.12 : 1, gait = t * (2.2 + 6.5 * o.speed);
-    const F = frame(sp, o, a, i => Math.sin(gait - i * 1.1) * R * 0.07 * (0.25 + o.speed) * still);
-    const q = F.q, nrm = F.nrm, rad = F.rad, head = q[0], fx = nrm[0].fx, fy = nrm[0].fy, hx = nrm[0].x, hy = nrm[0].y;
-    const tuck = o.sleep ? 0.45 : 1 - 0.45 * U.clamp01((o.fear - 0.6) / 0.4);
-    const glass = has.camouflage ? 0.6 + 0.2 * Math.sin(t * 1.7) : 1;
-    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'lighter';
-    if (!LOD || o.flash > 0.05) B.glow(ctx, q[2].x, q[2].y, R * (3 + o.flash + 0.3 * o.beat), P.hue, P.sat + 20, 70, (0.14 + 0.14 * o.energy + 0.4 * o.flash) * sp.glow * P.dim);
-    if (has.warmblood) B.glow(ctx, q[2].x, q[2].y, R * 1.8, 26, 70, 62, 0.14);
-    ctx.globalAlpha = glass;
-
-    // ---- eight legs: three pairs to walk on, one behind to hold on with
-    const Lg = R * (0.6 + 0.45 * v.limb) * tuck;
-    for (let pair = 0; pair < 4; pair++) {
-      const i = pair + 1, n = nrm[i];
-      for (const s of [1, -1]) {
-        const base = side(F, i, s, 0.86);
-        const swing = Math.sin(gait + pair * 1.55 + (s > 0 ? 0 : Math.PI)) * 0.5 * (0.15 + o.speed) * still;
-        const out = Math.atan2(n.y * s, n.x * s), back = Math.atan2(-n.fy, -n.fx);
-        const dir = pair === 3 ? back + s * (0.55 + swing * 0.5) : out + U.angDiff(out, back) * (0.12 + pair * 0.1) - swing * s;
-        const tx = base.x + Math.cos(dir) * Lg, ty = base.y + Math.sin(dir) * Lg, pxn = -Math.sin(dir), pyn = Math.cos(dir), w0 = R * 0.24, w1 = R * 0.12;
+    // Wheelbearers: a wheel, which at this distance is a spiral.
+    spiral(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, A = sp.arms, m = K.lod ? 7 : 13, rot = t * sp.spin * (0.5 + K.speed), sq = 0.72;
+      for (let j = 0; j < A; j++) {
         ctx.beginPath();
-        ctx.moveTo(base.x + pxn * w0, base.y + pyn * w0); ctx.lineTo(tx + pxn * w1, ty + pyn * w1);
-        ctx.quadraticCurveTo(tx + Math.cos(dir) * w1 * 1.3, ty + Math.sin(dir) * w1 * 1.3, tx - pxn * w1, ty - pyn * w1);
-        ctx.lineTo(base.x - pxn * w0, base.y - pyn * w0);
-        solid(ctx, P, 0.07); ctx.strokeStyle = P.ink(0.7); px(ctx, 1); ctx.stroke();
-        if (LOD) continue;
-        // a ring where the leg folds, and claws like fine hooks
-        ctx.beginPath(); ctx.moveTo(base.x + Math.cos(dir) * Lg * 0.5 + pxn * w0 * 0.75, base.y + Math.sin(dir) * Lg * 0.5 + pyn * w0 * 0.75); ctx.lineTo(base.x + Math.cos(dir) * Lg * 0.5 - pxn * w0 * 0.75, base.y + Math.sin(dir) * Lg * 0.5 - pyn * w0 * 0.75);
-        ctx.strokeStyle = P.ink(0.22); px(ctx, 0.75); ctx.stroke();
-        ctx.beginPath();
-        const cl = R * (has.fins ? 0.34 : 0.2);
-        for (const d of [-0.7, -0.25, 0.25, 0.7]) { ctx.moveTo(tx + pxn * w1 * d, ty + pyn * w1 * d); ctx.quadraticCurveTo(tx + Math.cos(dir + d * 0.5) * cl, ty + Math.sin(dir + d * 0.5) * cl, tx + Math.cos(dir + d * 1.5) * cl * 0.9, ty + Math.sin(dir + d * 1.5) * cl * 0.9); }
-        ctx.strokeStyle = P.ink(0.8); px(ctx, 0.8); ctx.stroke();
+        for (let i = 0; i <= m; i++) {
+          const k = i / m, th = j / A * TAU + rot + k * sp.twist * Math.PI, r = R * (0.16 + 1.15 * k), lx = Math.cos(th) * r, ly = Math.sin(th) * r * sq;
+          const qx = x + lx * ca - ly * sa, qy = y + lx * sa + ly * ca;
+          if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy);
+          if (i) K.pts.add(qx, qy, 0.95 - 0.75 * k, 1.25 - 0.4 * k);
+        }
+        ctx.strokeStyle = P.ink(0.16); px(ctx, 0.9); ctx.stroke();
       }
-    }
-    // fine hairs for feeling the water
-    if (has.tentacles || v.crest > 0.45) {
-      const amt = has.tentacles ? 1 : (v.crest - 0.45) * 1.8;
+      if (!K.lod) { ctx.beginPath(); ctx.ellipse(x, y, R * 1.35, R * 1.35 * sq, Math.atan2(sa, ca), 0, TAU); ctx.strokeStyle = P.ink(0.08); px(ctx, 0.8); ctx.stroke(); }
+    },
+
+    // Water Bears: a lens. Nested shells, a bar through the middle, and eight lesser lights in step.
+    lens(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, rot = Math.atan2(sa, ca), a = R * 1.45 * Math.sqrt(sp.ecc), b = R * 0.82, n = K.lod ? 2 : sp.rings;
+      for (let j = 0; j < n; j++) {
+        const k = 1 - j / (n + 0.6);
+        ctx.beginPath(); ctx.ellipse(x, y, a * k, b * k, rot, 0, TAU);
+        if (!j) { ctx.strokeStyle = P.ink(0.09); px(ctx, 5); ctx.stroke(); }
+        ctx.strokeStyle = P.ink(j ? 0.3 : 0.8, j ? 0 : 8); px(ctx, j ? 0.8 : 1.2); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.moveTo(x + ca * a * 0.55, y + sa * a * 0.55); ctx.lineTo(x - ca * a * 0.55, y - sa * a * 0.55);
+      ctx.strokeStyle = P.acc(0.45); px(ctx, 0.9); ctx.stroke();
+      for (let i = 0; i < 4; i++) for (const sd of [1, -1]) {
+        const k = (i - 1.5) / 2.2, lx = a * k * 0.92, ly = sd * b * Math.sqrt(Math.max(0, 1 - k * k * 0.84)) * 1.16;
+        const lit = 0.45 + 0.55 * Math.max(0, Math.sin(t * (2 + 6 * K.speed) - i * 1.5 + (sd > 0 ? 0 : Math.PI)));
+        K.pts.add(x + lx * ca - ly * sa, y + lx * sa + ly * ca, lit, 1.2);
+      }
+      K.pts.add(x + ca * a * 0.55, y + sa * a * 0.55, 0.9); K.pts.add(x - ca * a * 0.55, y - sa * a * 0.55, 0.5);
+    },
+
+    // Lightspeakers: a point with a corona of fine hairs, giving off slow rings.
+    pulsar(ctx, sp, P, K) {
+      const { x, y, R, t } = K, n = K.lod ? Math.ceil(sp.hairs * 0.5) : sp.hairs + 8, rot = t * 0.05;
       ctx.beginPath();
-      for (const s of [1, -1]) {
-        const b = side(F, 0, s, 0.9);
-        ctx.moveTo(b.x, b.y); for (let i = 1; i <= 8; i++) { const k = i / 8, w = Math.sin(t * 1.8 + k * 3 + s) * R * 0.12 * k; ctx.lineTo(b.x + (hx * s * 1.1 + fx * 0.5) * R * (0.6 + amt) * k + fx * w, b.y + (hy * s * 1.1 + fy * 0.5) * R * (0.6 + amt) * k + fy * w); }
-        if (v.crest > 0.62) for (let i = 1; i < 5; i++) { const c = side(F, i, s), n = nrm[i]; ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + (n.x * s - n.fx * 0.8) * R * 0.55 * amt, c.y + (n.y * s - n.fy * 0.8) * R * 0.55 * amt); }
+      for (let i = 0; i < n; i++) {
+        const th = i / n * TAU + rot, len = R * (0.75 + 0.75 * U.hash(i + sp.seed)) * (0.9 + 0.1 * Math.sin(t * 2 + i));
+        ctx.moveTo(x + Math.cos(th) * R * 0.34, y + Math.sin(th) * R * 0.34); ctx.lineTo(x + Math.cos(th) * len, y + Math.sin(th) * len);
+        if (i % 3 === 0) K.pts.add(x + Math.cos(th) * len, y + Math.sin(th) * len, 0.5 + 0.4 * Math.sin(t * 3 + i * 2));
       }
-      ctx.strokeStyle = P.ink(0.5); px(ctx, 0.8); ctx.stroke();
-    }
+      ctx.strokeStyle = P.ink(0.32); px(ctx, 0.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, R * 0.34, 0, TAU); ctx.strokeStyle = P.ink(0.8, 8); px(ctx, 1.1); ctx.stroke();
+      if (!K.lod) {
+        const ph = (t * 0.3 + U.hash(sp.seed)) % 1;
+        ctx.beginPath(); ctx.arc(x, y, R * (0.4 + 1.5 * ph), 0, TAU); ctx.strokeStyle = P.acc(0.3 * (1 - ph)); px(ctx, 0.9); ctx.stroke();
+      }
+    },
 
-    // ---- the body
-    const snout = { x: head.x + fx * rad[0] * 1.25, y: head.y + fy * rad[0] * 1.25 };
-    const out = [snout, { x: head.x + fx * rad[0] * 0.8 + hx * rad[0] * 0.7, y: head.y + fy * rad[0] * 0.8 + hy * rad[0] * 0.7 }];
-    for (let i = 0; i < K; i++) out.push(side(F, i, 1));
-    out.push({ x: q[K - 1].x - nrm[K - 1].fx * rad[K - 1] * 0.9, y: q[K - 1].y - nrm[K - 1].fy * rad[K - 1] * 0.9 });
-    for (let i = K - 1; i >= 0; i--) out.push(side(F, i, -1));
-    out.push({ x: head.x + fx * rad[0] * 0.8 - hx * rad[0] * 0.7, y: head.y + fy * rad[0] * 0.8 - hy * rad[0] * 0.7 });
-    blob(ctx, out); solid(ctx, P, 0.085);
-    rim(ctx, P);
-
-    ctx.save(); blob(ctx, out); ctx.clip();
-    grain(ctx, P, 150, t, i => mid(F, i % (K - 1), U.hash(i * 3), (U.hash(i * 7) * 2 - 1) * 0.95));
-    // folds of the skin between segments
-    ctx.beginPath();
-    for (let i = 0; i < K - 1; i++) for (const f of [0.5, 0.78]) { const l = mid(F, i, f, 1), r = mid(F, i, f, -1), c = mid(F, i, f + 0.16, 0); ctx.moveTo(l.x, l.y); ctx.quadraticCurveTo(c.x, c.y, r.x, r.y); }
-    ctx.strokeStyle = P.ink(0.2); px(ctx, 0.8); ctx.stroke();
-    if (has.shell) {
-      // plates along the back, pricked with pores
+    // Mosskeepers: filaments that branch, and branch again.
+    dendrite(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, A = sp.branches, base = Math.atan2(sa, ca);
       ctx.beginPath();
-      for (let i = 1; i < 5; i++) { const a0 = mid(F, i, -0.3, 0.7), a1 = mid(F, i, 0.3, 0.72), b1 = mid(F, i, 0.3, -0.72), b0 = mid(F, i, -0.3, -0.7); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y); ctx.lineTo(b1.x, b1.y); ctx.lineTo(b0.x, b0.y); ctx.closePath(); }
-      ctx.strokeStyle = P.ink(0.48); px(ctx, 1); ctx.stroke();
-      ctx.fillStyle = P.ink(0.35); ctx.beginPath(); for (let i = 1; i < 5; i++) for (let k = 0; k < 6; k++) { const e = mid(F, i, (U.hash(i * 9 + k) - 0.5) * 0.5, (U.hash(i * 5 + k * 3) - 0.5) * 1.2); dot(ctx, e.x, e.y, 0.7 * u); } ctx.fill();
-    }
-    // bands and stipple, if its genes call for them
-    const band = Math.max(0, v.stripe - 0.5) * 1.6 + (has.muscle ? 0.3 : 0);
-    if (band > 0.03) { ctx.beginPath(); for (let i = 1; i < 5; i++) for (const f of [-0.08, 0.08]) { const l = mid(F, i, f, 1), r = mid(F, i, f, -1); ctx.moveTo(l.x, l.y); ctx.lineTo(r.x, r.y); } ctx.strokeStyle = P.acc(Math.min(0.5, band)); px(ctx, 0.9); ctx.stroke(); }
-    const spot = Math.max(0, v.spots - 0.48) * 1.8;
-    if (spot > 0.03) { ctx.fillStyle = P.acc(Math.min(0.7, spot)); ctx.beginPath(); for (let i = 0; i < 46; i++) { const e = mid(F, 1 + (i % 4), U.hash(i * 3) - 0.3, (U.hash(i * 7) - 0.5) * 1.5); dot(ctx, e.x, e.y, (0.6 + U.hash(i) * 0.8) * u); } ctx.fill(); }
+      for (let j = 0; j < A; j++) {
+        const th = base + j / A * TAU, sway = 0.12 * sp.soft * Math.sin(t * 0.9 + j * 1.7), L = R * (1.15 + 0.25 * U.hash(j + sp.seed));
+        const ex = x + Math.cos(th + sway) * L, ey = y + Math.sin(th + sway) * L;
+        ctx.moveTo(x + Math.cos(th) * R * 0.2, y + Math.sin(th) * R * 0.2); ctx.lineTo(ex, ey);
+        K.pts.add(ex, ey, 0.9, 1.2);
+        for (const f of [0.45, 0.75]) for (const sd of [1, -1]) {
+          const bx = x + Math.cos(th + sway * f) * L * f, by = y + Math.sin(th + sway * f) * L * f, bl = L * (f < 0.6 ? 0.42 : 0.26), ba = th + sway + sd * (0.62 + 0.1 * Math.sin(t * 1.3 + j));
+          const tx = bx + Math.cos(ba) * bl, ty = by + Math.sin(ba) * bl;
+          ctx.moveTo(bx, by); ctx.lineTo(tx, ty);
+          K.pts.add(tx, ty, 0.55);
+          if (!K.lod && f < 0.6) { const b2 = ba + sd * 0.6; ctx.moveTo(bx + Math.cos(ba) * bl * 0.6, by + Math.sin(ba) * bl * 0.6); ctx.lineTo(bx + Math.cos(ba) * bl * 0.6 + Math.cos(b2) * bl * 0.4, by + Math.sin(ba) * bl * 0.6 + Math.sin(b2) * bl * 0.4); }
+        }
+      }
+      ctx.strokeStyle = P.ink(0.1); px(ctx, 3.5); ctx.stroke();
+      ctx.strokeStyle = P.ink(0.6, 6); px(ctx, 0.9); ctx.stroke();
+    },
 
-    // the workings: mouth tube, piercing stylets, the bulb that pumps, the gut
-    const bulb = mid(F, 0, 0.75, 0), br = rad[0] * 0.36, jab = o.eat * R * 0.22;
-    ctx.beginPath(); ctx.moveTo(snout.x - fx * R * 0.12, snout.y - fy * R * 0.12); ctx.lineTo(bulb.x, bulb.y); ctx.strokeStyle = P.ink(0.55); px(ctx, 1); ctx.stroke();
-    ctx.beginPath(); for (const s of [1, -1]) { ctx.moveTo(snout.x - fx * (R * 0.16 - jab), snout.y - fy * (R * 0.16 - jab)); ctx.quadraticCurveTo(head.x + hx * s * rad[0] * 0.42, head.y + hy * s * rad[0] * 0.42, bulb.x + hx * s * br * 1.2, bulb.y + hy * s * br * 1.2); }
-    ctx.strokeStyle = P.acc(has.jaws ? 0.9 : 0.5); px(ctx, has.jaws ? 1.2 : 0.85); ctx.stroke();
-    ctx.beginPath(); ctx.arc(bulb.x, bulb.y, br * (1 + 0.08 * Math.sin(t * 5 * still)), 0, TAU); ctx.fillStyle = P.fill(0.12); ctx.fill(); ctx.strokeStyle = P.acc(0.75); px(ctx, 1); ctx.stroke();
-    ctx.beginPath(); for (const s of [-0.5, 0, 0.5]) { ctx.moveTo(bulb.x + hx * s * br - fx * br * 0.4, bulb.y + hy * s * br - fy * br * 0.4); ctx.lineTo(bulb.x + hx * s * br + fx * br * 0.4, bulb.y + hy * s * br + fy * br * 0.4); } ctx.stroke();
-    const dietCol = o.diet < -0.2 ? hsl(128, 45, 70, 0.5 * P.dim) : o.diet > 0.2 ? hsl(340, 50, 76, 0.5 * P.dim) : P.acc(0.45);
-    for (let i = 1; i < 4; i++) {
-      const c = mid(F, i, 0.5, 0), an = Math.atan2(nrm[i].fy, nrm[i].fx);
-      ctx.beginPath(); ctx.ellipse(c.x, c.y, R * 0.5, c.r * (has.gut ? 0.5 : 0.4), an, 0, TAU); ctx.fillStyle = P.fill(has.gut ? 0.14 : 0.07); ctx.fill(); ctx.strokeStyle = P.ink(0.3); px(ctx, 0.85); ctx.stroke();
-      ctx.fillStyle = dietCol; ctx.beginPath(); for (let k = 0; k < 5; k++) dot(ctx, c.x + (U.hash(i * 11 + k) - 0.5) * R * 0.6 + Math.sin(t * 0.9 + k + i) * u, c.y + (U.hash(i * 17 + k) - 0.5) * c.r * 0.5, 0.85 * u); ctx.fill();
-    }
-    // loose cells drifting in the body cavity
-    ctx.strokeStyle = P.ink(0.3); px(ctx, 0.75); ctx.beginPath();
-    for (let i = 0; i < 11; i++) { const e = mid(F, 1 + (i % 4), 0.5 + 0.4 * Math.sin(t * 0.4 * still + i * 2.1), 0.72 * Math.sin(t * 0.3 * still + i * 1.3)); dot(ctx, e.x, e.y, R * 0.055); }
-    ctx.stroke();
-    if (has.chloroplast) { ctx.fillStyle = hsl(128, 50, 68, 0.55 * P.dim); ctx.beginPath(); for (let i = 0; i < 12; i++) { const e = mid(F, 1 + (i % 3), U.hash(i * 5), (U.hash(i * 9) - 0.5) * 1.4); dot(ctx, e.x, e.y, 1.2 * u); } ctx.fill(); }
+    // Dropfolk: a light with lesser lights going round it, each on its own tilted path.
+    system(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, n = K.lod ? 2 : Math.min(3, sp.rings), base = Math.atan2(sa, ca);
+      for (let j = 0; j < n; j++) {
+        const a = R * (0.72 + 0.36 * j), b = a * (0.3 + 0.3 * U.hash(j * 3 + sp.seed)), rot = base * 0.5 + j * 1.15 + U.hash(j + sp.seed) * 3, cr = Math.cos(rot), sr = Math.sin(rot);
+        ctx.beginPath(); ctx.ellipse(x, y, a, b, rot, 0, TAU); ctx.strokeStyle = P.ink(0.26); px(ctx, 0.8); ctx.stroke();
+        const m = 1 + (j % 2);
+        for (let i = 0; i < m; i++) {
+          const th = t * sp.spin * (2.2 - 0.5 * j) * (j % 2 ? -1 : 1) + i * Math.PI + j, lx = Math.cos(th) * a, ly = Math.sin(th) * b, qx = x + lx * cr - ly * sr, qy = y + lx * sr + ly * cr;
+          K.pts.add(qx, qy, 1, 1.3);
+          if (!K.lod) B.glow(ctx, qx, qy, R * 0.22, sp.hue + 38, P.sat + 20, 80, 0.5 * K.live);
+        }
+      }
+      ctx.beginPath(); ctx.arc(x, y, R * 0.3, 0, TAU); ctx.strokeStyle = P.ink(0.7, 8); px(ctx, 1); ctx.stroke();
+    },
 
-    // ---- culture, written on the body in fine lines
-    if (stage >= 7) {
+    // Cloudseeders: six-fold, like the thing they are building.
+    crystal(ctx, sp, P, K) {
+      const { x, y, R, t, ca, sa } = K, base = Math.atan2(sa, ca) * 0.3 + t * 0.08, L = R * 1.3;
       ctx.beginPath();
-      for (let i = 1; i < 5; i++) {
-        const c = mid(F, i, 0, 0), n = nrm[i], w = c.r * 0.34, d = R * 0.2;
-        for (const k of stage >= 8 ? [0, 0.16] : [0]) { ctx.moveTo(c.x + n.x * w - n.fx * (d + k * R), c.y + n.y * w - n.fy * (d + k * R)); ctx.lineTo(c.x + n.fx * (d - k * R), c.y + n.fy * (d - k * R)); ctx.lineTo(c.x - n.x * w - n.fx * (d + k * R), c.y - n.y * w - n.fy * (d + k * R)); }
+      for (let j = 0; j < 6; j++) {
+        const th = base + j / 6 * TAU, c = Math.cos(th), s = Math.sin(th);
+        ctx.moveTo(x, y); ctx.lineTo(x + c * L, y + s * L);
+        K.pts.add(x + c * L, y + s * L, 0.95, 1.2);
+        for (const f of K.lod ? [0.6] : [0.42, 0.68]) for (const sd of [1, -1]) {
+          const bl = L * (f < 0.5 ? 0.3 : 0.2) * (0.8 + 0.4 * sp.v.fin), ba = th + sd * Math.PI / 3;
+          ctx.moveTo(x + c * L * f, y + s * L * f); ctx.lineTo(x + c * L * f + Math.cos(ba) * bl, y + s * L * f + Math.sin(ba) * bl);
+        }
+        const h2 = th + TAU / 6;
+        ctx.moveTo(x + c * R * 0.34, y + s * R * 0.34); ctx.lineTo(x + Math.cos(h2) * R * 0.34, y + Math.sin(h2) * R * 0.34);
       }
-      ctx.strokeStyle = P.acc(0.7, 6); px(ctx, 0.9); ctx.stroke();
-      if (stage >= 8) { ctx.fillStyle = P.acc(0.8, 8); ctx.beginPath(); for (let i = 1; i < 5; i++) for (const s of [0.62, -0.62]) { const e = mid(F, i, 0, s); dot(ctx, e.x, e.y, 1.1 * u); } ctx.fill(); }
-    }
-    ctx.restore();
-
-    // ---- lights along its flanks: how it speaks, once it has something to say
-    if (stage >= 6) {
-      for (let i = 1; i < 5; i++) for (const f of [-0.2, 0.25]) for (const s of [1, -1]) {
-        const e = mid(F, i, f, s * 0.8), ph = Math.sin(t * 2.4 - (i + f) * 1.1) * 0.5 + 0.5;
-        const lit = (0.2 + 0.4 * ph * (o.sleep ? 0.3 : 1)) + o.sing * (0.5 + 0.5 * Math.sin(t * 14 - (i + f) * 2.2)) + o.flash;
-        if (!LOD) B.glow(ctx, e.x, e.y, R * 0.3, P.hue + 45, 80, 80, Math.min(1, lit) * 0.9);
-        ctx.beginPath(); ctx.arc(e.x, e.y, 0.9 * u, 0, TAU); ctx.fillStyle = P.acc(Math.min(1, 0.4 + lit), 10); ctx.fill();
+      ctx.strokeStyle = P.ink(0.1); px(ctx, 3.5); ctx.stroke();
+      ctx.strokeStyle = P.ink(0.7, 8); px(ctx, 0.9); ctx.stroke();
+      if (!K.lod) {
+        ctx.beginPath(); ctx.arc(x, y, R * 1.55, 0, TAU); ctx.setLineDash([1.5 * B.unit, 6 * B.unit]); ctx.strokeStyle = P.acc(0.3); px(ctx, 0.9); ctx.stroke(); ctx.setLineDash([]);
       }
-    }
-    if (stage >= 9) {
-      // a six-rayed mark on the brow, and a seed crystal kept close
-      ctx.beginPath(); for (let k = 0; k < 3; k++) { const an = k / 3 * Math.PI + t * 0.2; ctx.moveTo(head.x - Math.cos(an) * R * 0.2, head.y - Math.sin(an) * R * 0.2); ctx.lineTo(head.x + Math.cos(an) * R * 0.2, head.y + Math.sin(an) * R * 0.2); }
-      ctx.strokeStyle = 'rgba(235,245,255,0.85)'; px(ctx, 0.85); ctx.stroke();
-      const an = t * 0.7, cx = q[1].x + Math.cos(an) * R * 2, cy = q[1].y + Math.sin(an) * R * 1.6;
-      B.glow(ctx, cx, cy, R * 0.9, 200, 50, 88, 0.6);
-      ctx.beginPath(); for (let k = 0; k <= 6; k++) { const b = k / 6 * TAU + an; if (k) ctx.lineTo(cx + Math.cos(b) * R * 0.14, cy + Math.sin(b) * R * 0.14); else ctx.moveTo(cx + Math.cos(b) * R * 0.14, cy + Math.sin(b) * R * 0.14); }
-      ctx.strokeStyle = 'rgba(235,245,255,0.9)'; px(ctx, 0.9); ctx.stroke();
-    }
-    // two eyespots: specks, not windows
-    for (const s of [1, -1]) {
-      const ex = head.x + fx * rad[0] * 0.35 + hx * s * rad[0] * 0.5, ey = head.y + fy * rad[0] * 0.35 + hy * s * rad[0] * 0.5, er = Math.max(1.2 * u, R * (has.keeneyes ? 0.075 : 0.05));
-      if (o.sleep) { ctx.beginPath(); ctx.moveTo(ex - hx * er * 1.3, ey - hy * er * 1.3); ctx.lineTo(ex + hx * er * 1.3, ey + hy * er * 1.3); ctx.strokeStyle = P.ink(0.6); px(ctx, 0.9); ctx.stroke(); continue; }
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fillStyle = 'rgba(2,5,9,0.95)'; ctx.fill();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.beginPath(); ctx.arc(ex, ey, er * (has.keeneyes ? 2 : 1.7), 0, TAU); ctx.strokeStyle = P.ink(0.55); px(ctx, 0.8); ctx.stroke();
-    }
-    // its pulse
-    if (!LOD) B.glow(ctx, q[2].x, q[2].y, rad[2] * (0.7 + 0.7 * o.beat), P.hue + 150, 60, 82, 0.14 + 0.3 * o.beat);
-    ctx.restore();
-  }
+    },
+  };
 
   // ---------------------------------------------------------------- one call draws any body
 
-  // o: { id, x, y, ang, R, t, dt, speed 0..1, energy, diet, eat, hurt, pet, beat, flash, sing, fear, sleep, dormant }
+  // o: { id, x, y, ang, R, t, dt, speed 0..1, energy, diet, eat, hurt, pet, beat, flash, sing, fear, sleep, dormant, lod }
   B.draw = function (ctx, sp, o) {
-    LOD = o.lod | 0;
-    switch (sp.plan) {
-      case 'proto': return drawProto(ctx, sp, o);
-      case 'rod': return drawRod(ctx, sp, o);
-      case 'euk': return drawEuk(ctx, sp, o);
-      case 'volvox': return drawVolvox(ctx, sp, o);
-      case 'rotifer': return drawRotifer(ctx, sp, o, chain(o.id, o.x, o.y, o.ang, o.R, sp));
-      default: return drawBear(ctx, sp, o, chain(o.id, o.x, o.y, o.ang, o.R, sp));
-    }
+    const lod = o.lod | 0;
+    const live = o.dormant ? 0.4 : (o.sleep ? 0.6 : 1) * (lod ? 0.8 : 0.7 + 0.3 * c01(o.energy * 2.5));
+    const flare = c01(Math.max(o.eat || 0, o.pet || 0, o.flash || 0, (o.beat || 0) * 0.4));
+    const P = pen(sp, o, live);
+    const hurt = o.hurt > 0.05, jx = hurt ? (U.hash(Math.floor(o.t * 40)) - 0.5) * o.R * 0.14 : 0, jy = hurt ? (U.hash(Math.floor(o.t * 40) + 9) - 0.5) * o.R * 0.14 : 0;
+    const K = { x: o.x + jx, y: o.y + jy, R: o.R * (1 - 0.12 * c01(o.fear || 0)) * (1 + 0.05 * flare), t: o.dormant ? o.t * 0.08 : o.sleep ? o.t * 0.4 : o.t,
+      ca: Math.cos(o.ang), sa: Math.sin(o.ang), lod, flare, live, speed: c01(o.speed || 0), pts: new Points() };
+    const pc = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // the haze around it, and the light at its heart
+    if (!lod) B.glow(ctx, K.x, K.y, K.R * 2.6, sp.hue, P.sat + 20, 60, (0.1 * sp.glow + 0.25 * flare) * live);
+    (FORM[sp.plan] || FORM.spark)(ctx, sp, P, K);
+    K.pts.flush(ctx, P);
+    if (!o.dormant) {
+      B.glow(ctx, K.x, K.y, K.R * (lod ? 0.42 : 0.5 + 0.25 * flare), hurt ? 355 : sp.hue, P.sat + (hurt ? 50 : 10), 88, (0.75 + 0.25 * flare) * live);
+      const r = (lod ? 1 : 1.4) * B.unit;
+      ctx.fillStyle = `rgba(255,255,255,${0.9 * live})`; ctx.fillRect(K.x - r, K.y - r, r * 2, r * 2);
+    } else { ctx.beginPath(); ctx.arc(K.x, K.y, K.R * 0.12, 0, TAU); ctx.strokeStyle = P.ink(0.6); px(ctx, 0.9); ctx.stroke(); }
+    // a song or a flash goes out as a ring
+    const out = Math.max(o.sing || 0, o.flash || 0);
+    if (out > 0.03) { ctx.beginPath(); ctx.arc(K.x, K.y, K.R * (1.2 + 1.8 * (1 - out)), 0, TAU); ctx.strokeStyle = P.acc(0.55 * out); px(ctx, 1); ctx.stroke(); }
+    ctx.globalCompositeOperation = pc;
   };
 
   // A still portrait, filling a canvas. o: { g, stage, traits }
   B.portrait = function (canvas, o) {
     const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height, s = Math.min(w, h);
     const sp = B.spec(o.g, o.stage, o.traits || []);
-    const keep = B.unit; B.unit = Math.max(1, s / 170); LOD = 0;
+    const keep = B.unit; B.unit = Math.max(1, s / 170);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const bg = ctx.createRadialGradient(w / 2, h / 2, s * 0.05, w / 2, h / 2, s * 0.75);
-    bg.addColorStop(0, hsl(sp.hue, 30, 11, 1)); bg.addColorStop(1, hsl(sp.hue + 20, 35, 3.5, 1));
+    bg.addColorStop(0, hsl(sp.hue, 30, 9, 1)); bg.addColorStop(1, hsl(sp.hue + 20, 35, 3, 1));
     ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-    const pose = { id: '__portrait', x: w / 2, y: h / 2, ang: -0.45, t: 1.7, dt: 0, speed: 0.3, energy: 0.9, diet: 0, eat: 0, hurt: 0, pet: 0, beat: 0.4, flash: 0, sing: 0, fear: 0, sleep: false, dormant: false };
-    if (sp.plan === 'proto') pose.R = s * 0.27;
-    else if (sp.plan === 'rod') { pose.R = s * 0.3 / sp.aspect; pose.x = w * 0.58; pose.y = h * 0.46; }
-    else if (sp.plan === 'euk') pose.R = s * 0.3 / sp.aspect;
-    else if (sp.plan === 'volvox') pose.R = s * 0.32;
-    else {
-      const R = s * 0.66 / (sp.len + 1.6), seg = R * sp.len / sp.K, a = { p: [] };
-      // lay the body out in a gentle curve across the frame
-      let x = w / 2 + Math.cos(pose.ang) * R * sp.len * 0.42, y = h / 2 + Math.sin(pose.ang) * R * sp.len * 0.42, dir = pose.ang + Math.PI;
-      for (let i = 0; i < sp.K; i++) { a.p.push({ x, y }); dir += 0.13 * Math.sin(i * 0.8 + 0.4); x += Math.cos(dir) * seg; y += Math.sin(dir) * seg; }
-      pose.R = R; pose.x = a.p[0].x; pose.y = a.p[0].y;
-      if (sp.plan === 'rotifer') drawRotifer(ctx, sp, pose, a); else drawBear(ctx, sp, pose, a);
-      B.unit = keep;
-      return;
-    }
+    const reach = { spark: 1.1, streak: 2.6, cell: 1.5, cluster: 1.2, spiral: 1.4, lens: 1.9, pulsar: 1.6, dendrite: 1.5, system: 1.5, crystal: 1.6 }[sp.plan] || 1.5;
+    const pose = { id: '__portrait', x: w / 2, y: h / 2, ang: -0.45, R: s * 0.4 / reach, t: 1.7, dt: 0, speed: 0.3, energy: 0.9, diet: 0, eat: 0, hurt: 0, pet: 0, beat: 0.4, flash: 0, sing: 0, fear: 0, sleep: false, dormant: false };
+    if (sp.plan === 'streak') { pose.x = w * 0.62; pose.y = h * 0.42; }
     B.draw(ctx, sp, pose);
     B.unit = keep;
   };
@@ -4654,7 +4322,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
           let px0 = x, py0 = y; const pts = [[x, y]];
           for (let k = 1; k <= segs; k++) { const kk = k / segs, sw = Math.sin(T * 0.8 + i * 1.7 + f.ph + kk * 2) * 0.35 * kk; px0 = x + Math.cos(a + sw) * len * kk; py0 = y + Math.sin(a + sw) * len * kk; pts.push([px0, py0]); }
           ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let k = 1; k <= segs; k++) ctx.lineTo(pts[k][0], pts[k][1]);
-          ctx.strokeStyle = hsl(125, 40, 60 + 16 * lit, 0.3); ctx.lineWidth = 3.4; ctx.stroke();
+          ctx.strokeStyle = hsl(125, 30, 60 + 16 * lit, 0.2); ctx.lineWidth = 2.4; ctx.stroke();
           ctx.strokeStyle = hsl(122, 50, 72 + 10 * lit, 0.9); px(1); ctx.stroke();
           ctx.fillStyle = hsl(118, 60, 80, 0.85); ctx.beginPath(); for (let k = 1; k <= segs; k++) dot(pts[k][0], pts[k][1], 1.1 * u); ctx.fill();
           const tip = pts[segs]; B.glow(ctx, tip[0], tip[1], 5 + 6 * (f.gr || 0), 110, 70, 70, 0.3 + 0.5 * (f.gr || 0));
@@ -4918,7 +4586,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     const s = sim.s;
     for (const v of s.visitors) {
       const def = D.SPECIES.find(q => q.id === v.sp);
-      if (def) Wd.draw(ctx, def, v, T, !s.codex[v.sp]);
+      if (def) { ctx.globalAlpha = s.codex[v.sp] ? 0.5 : 0.8; Wd.draw(ctx, def, v, T, !s.codex[v.sp]); ctx.globalAlpha = 1; }
     }
   }
 
@@ -5102,7 +4770,9 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     ctx.lineCap = 'round';
     habitat(sim, P);
     if (P.wm.fizz && Math.random() < 0.3) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * s.habitatR * 0.9; bubbles(Math.cos(a) * d, Math.sin(a) * d, 1, 4); }
+    ctx.globalAlpha = 0.3;
     for (const f of s.fixtures) fixture(f, sim, P);
+    ctx.globalAlpha = 1;
     seed(sim);
     wastes(sim);
     foods(sim, P);
@@ -6175,10 +5845,10 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     { id: 'latched', again: 1, text: 'Something has latched on. Tap it off.', when: x => x.s.threats.some(t => t.att) },
     { id: 'virus', text: 'A virus. Tap it before it latches on.', when: x => x.s.threats.some(t => t.kind === 'virus' && !t.att), until: x => x.s.stats.popped > 0 },
     { id: 'feed', text: 'Tap the water near it to drop food.', when: x => x.s.stats.eaten === 0, until: x => x.s.stats.eaten > 0, life: 600 },
-    { id: 'glow', text: 'Tap the drifting sparks to gather glow.', when: x => x.s.motes.length > 0, until: x => x.s.stats.gathered > 0, life: 90 },
+    { id: 'glow', text: 'Tap the drifting sparks to gather glow.', when: x => x.s.motes.length > 0, until: x => x.s.stats.gathered > 0, life: 25 },
     { id: 'ready', text: 'The world is ready for its next age. Tap the ring.', when: x => x.c.ready && x.sim.canEvolve() && x.s.stage < 2, until: x => x.s.stage > 1, life: 600 },
     { id: 'tasks', again: 1, text: '', when: x => x.c.ready && x.s.stage < D.LAST && !x.sim.canEvolve() && x.tasks.some(t => !t.done), say: x => 'Grown, and waiting on you: ' + x.tasks.find(t => !t.done).text.toLowerCase() + '.' },
-    { id: 'visitor', text: 'Something else is drifting through. Tap it to note it down.', when: x => x.s.visitors.some(v => !v.seen && !x.s.codex[v.sp] && v.t > 4), until: x => x.s.stats.found > 0, life: 80 },
+    { id: 'visitor', text: 'Something else is drifting through. Tap it to note it down.', when: x => x.s.visitors.some(v => !v.seen && !x.s.codex[v.sp] && v.t > 4), until: x => x.s.stats.found > 0, life: 25 },
     { id: 'teach', text: 'It just did something. Touch it within a few seconds and it will learn.', when: x => x.s.stage >= 4 && !!x.c.trick, until: x => Object.keys(x.c.base).length > 0, life: 40 },
     { id: 'cue', text: 'Double tap open water as a signal. If it answers with something you like, touch it.', when: x => x.s.stage >= 4 && Object.keys(x.c.base).length > 0 && !x.c.trick, until: x => x.sim.tricks().length > 0, life: 30 },
     { id: 'protein', text: 'They need protein to grow. Drop live food.', when: x => x.s.stage >= 2 && x.c.protein < 0.1 && !x.c.dormant, life: 20 },
@@ -6347,6 +6017,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
 
   function setMeter(id, v, on) {
     const node = el['m-' + id];
+    on = on && v < (seen['mv:' + id] ? 0.6 : 0.45);      // shown while low, with a little stickiness
     if (put('mv:' + id, on ? 1 : 0)) show(node, on);
     if (!on) return;
     const q = Math.round(U.clamp01(v) * 50) / 50;
@@ -6435,7 +6106,8 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     const tasks = sim.tasks(), waiting = c.ready && s.stage < D.LAST && tasks.some(t => !t.done);
     let th = '';
     if (tasks.length && s.stage < D.LAST && !(c.ready && !waiting)) {
-      th = `<span class="th">${waiting ? 'Waiting on you' : 'This age needs'}</span>` + tasks.map(t => `<span class="t${t.done ? ' done' : ''}"><i></i>${esc(t.text)}${!t.done && t.n > 1 ? ` <em>${t.have}/${t.n}</em>` : ''}</span>`).join('');
+      const t = tasks.find(x => !x.done), left = tasks.filter(x => !x.done).length;
+      if (t) th = `<span class="t"><i></i>${esc(t.text)}${t.n > 1 ? ` <em>${t.have}/${t.n}</em>` : ''}${left > 1 ? ` <em>+${left - 1}</em>` : ''}</span>`;
     }
     if (put('tasks', th)) { el.tasks.innerHTML = th; show(el.tasks, !!th); }
     if (put('waiting', waiting ? 1 : 0)) { el.tasks.classList.toggle('waiting', waiting); el.ring.classList.toggle('waiting', waiting); }
@@ -6838,7 +6510,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
       <h4>Sound</h4>
       <label class="range"><span>Volume</span><input type="range" id="u-vol" min="0" max="100" value="${Math.round(st.volume * 100)}"></label>
       <div class="segrow"><span>Narrator</span><div class="seg">${seg}</div></div>
-      ${sw('speak', 'Read aloud', 'The narrator speaks, using this device\'s voice.')}
+      ${sw('voice', 'Narrator’s voice', 'The narration, read aloud.')}
       <h4>Touch and senses</h4>
       ${sw('haptics', 'Haptics', 'Feel a heartbeat when you touch one of them, on phones that can.')}
       ${sw('tilt', 'Tilt the water', tiltNote)}
@@ -6931,12 +6603,18 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
 
 </script>
 <script>
+// Which lines the narrator has recorded, and how long each runs (tenths of a second).
+// Written by tools/make_voice.py. Do not edit by hand.
+(globalThis.MOTE = globalThis.MOTE || {}).VOICE = {"000f205b":127,"003104ce":72,"00f0a090":105,"01505645":133,"01bed11a":119,"022371c2":149,"03756b65":123,"0381172b":152,"03c15757":84,"03d45d37":72,"03e28910":118,"042d19d5":110,"04368cab":121,"048b1cef":113,"055345e0":110,"05db075e":114,"06627441":136,"06e92cbe":73,"07bd2cbe":121,"087fa83d":98,"08fa7f42":112,"091c96b5":103,"09aed20a":110,"0a32478d":106,"0aad70d7":138,"0adea381":110,"0b0572d8":56,"0baa72be":110,"0ca3589c":104,"0cda2a94":84,"0d225cd9":137,"0d3e71f3":116,"0e452b10":107,"0ebe7b41":105,"100c9592":111,"1065a4de":69,"10ebe089":126,"10f21668":41,"11144555":101,"11a01c6b":99,"120e7cfa":78,"123f70a5":70,"126c5ded":118,"12afa019":144,"1311315f":70,"134dd4db":138,"1390ca02":58,"15b18b7a":74,"15c05c6d":112,"162ce83e":75,"1658b31d":111,"16c099b1":73,"16f6ff8c":140,"1841daf0":101,"187e9d56":93,"18a46ac9":98,"18cb6c66":98,"18d4517c":127,"19858129":77,"1a0b8c7e":116,"1b6aeed0":133,"1b97e0a8":55,"1c241dee":110,"1c92386a":74,"1cbd3002":121,"1d7f6554":109,"1e915983":136,"1ea198bd":113,"1ea8b355":118,"1ef061b9":50,"1f4359e3":108,"1f4d0d95":75,"1f638a3c":83,"1f799574":111,"1fbb1d35":109,"21a2e0bc":113,"227be81d":140,"227d6f4c":58,"22cc90c3":78,"2423bc07":74,"24a41906":61,"251d64ac":111,"253e85f4":137,"254c66d4":119,"25748d22":70,"26197080":129,"27b0deda":68,"28c91a42":123,"28eebfc7":115,"295a65f1":144,"2aad5707":138,"2adbcff6":141,"2b63054b":91,"2b859f09":75,"2cbf09e6":107,"2db35750":62,"2f0cfee7":145,"2f17fc7b":143,"2f7ffb31":123,"2fa79503":100,"304fd7b3":109,"307f0677":54,"309c4fbb":79,"30a4a38e":55,"319a4f2f":137,"326e6620":44,"3287e2cb":81,"32d0946b":144,"34651dd1":139,"34be1627":113,"34f81c25":116,"35702bf7":135,"358d74b2":64,"35de8e99":72,"3752cbde":122,"379c37f9":74,"3816d28d":75,"3899a5b4":64,"38ab9659":56,"38ba51b8":49,"38f03c0d":112,"393ff0ec":105,"3975323d":90,"3a7987aa":107,"3a7fdfaa":74,"3af8de60":156,"3b1c4b43":80,"3b401204":147,"3dbdc6bb":71,"3e18cee9":118,"3e4bacc4":136,"3e8b7f8e":114,"3e966241":123,"3fe95154":54,"4016acf2":56,"40324fc0":76,"40707bf2":177,"4091a500":139,"417cef58":68,"41ce9c1c":122,"41e52ff5":60,"426a59dc":75,"4303fb32":56,"445ac2a9":111,"445d9090":117,"44e65ff1":139,"45573244":38,"45cc1f15":110,"464025ba":111,"46fc3626":76,"474987a7":131,"4758e27e":111,"47947420":82,"47dc495d":123,"48c2bcf9":60,"48e5b432":168,"491ea815":56,"4c6d12ad":144,"4ca85375":99,"4d1e72e9":134,"4d3a2ecb":58,"4dc127c9":111,"4e1be5b9":142,"4ec0da84":81,"505eee26":162,"507a4608":57,"50948c3c":109,"51155503":55,"5148f1c7":137,"52129e6f":112,"5223e6b4":108,"53696abe":115,"53a4897b":118,"54522617":73,"55098ba7":87,"557e87f9":59,"562c868a":73,"566eb467":115,"5745ee60":56,"576e5095":157,"5784b435":138,"5873bfad":108,"5876bbb5":147,"596e901d":106,"5a4a9335":110,"5be5ba35":141,"5d9b5e28":110,"5e379c94":83,"5eb63bab":73,"5ede4559":125,"5f6841f4":62,"5f773f71":83,"5f9f31d5":97,"5fa48e5b":126,"5fe6922f":98,"60b65fe2":79,"60b6873c":109,"60c70cb7":108,"60d7b093":109,"61841d25":76,"61dbb785":126,"61dea104":85,"61e39a16":138,"61e6d077":113,"6273a328":85,"62ab8905":91,"631d124c":112,"63a504ec":79,"64751e69":140,"64b437ea":69,"666af757":93,"66b3d5af":75,"67896ff7":113,"67bfab84":158,"680a08e5":105,"687329c5":137,"69f641aa":137,"6afb2788":137,"6b812fd4":138,"6b93cdbd":60,"6bb08bb5":55,"6bc1cfc1":97,"6c76967b":153,"6ca0e815":138,"6ccb7955":52,"6cd66b4c":136,"6d9814c8":135,"6dc558ae":67,"6dda1685":53,"6df2a9be":134,"6ea911f0":104,"6fd6f277":63,"70485d2a":51,"7072f4aa":115,"70830ccd":57,"70e31381":55,"710e1f32":123,"71740412":139,"71bd12b4":111,"725fa320":107,"733fecee":132,"7346a711":137,"73f1ecf5":109,"7418f908":105,"746d1ac6":146,"74db8722":123,"75107e40":100,"757d4103":96,"75956b7c":144,"75b4a399":51,"7680aeea":96,"76ab23c6":64,"772f5c9e":112,"77ee8c87":118,"780988cd":63,"786eebbf":74,"78bb32d0":101,"78f31740":144,"792bdcd9":55,"79a8ce57":69,"7ad71133":109,"7b577321":27,"7b82204a":100,"7b9d109a":57,"7bb498ac":103,"7be98e12":72,"7c50bd74":87,"7cf78e0c":96,"7cfcf151":88,"7d1188d6":113,"7d5c6b6b":109,"7d8a9dc9":113,"7e3c709c":56,"7e5a2225":111,"7f345e42":75,"7f8c47d9":141,"7fd2b0c7":138,"80090553":127,"802631ba":150,"8066fab3":117,"80700e63":64,"808a334e":142,"80b9c1c4":97,"8147e085":79,"8210f696":41,"8254ff98":88,"82623807":120,"8307ee0d":136,"83449c5b":69,"844235c4":45,"8446b8d9":141,"85208a35":74,"85f8eb25":74,"8642a68b":145,"864342f9":106,"8707afb6":52,"871574d0":73,"888823e9":149,"88fb9bd3":117,"8a0181f5":73,"8a4bfff7":73,"8ac9b574":120,"8b8b24ef":111,"8c149d1d":111,"8c479f28":126,"8ca35ebb":73,"8ce2f677":101,"8d31b39c":142,"905e270e":64,"906da5d3":118,"911c5a9c":45,"91424729":61,"91b65f53":109,"93121442":74,"93424eb3":117,"93d2d391":73,"94809206":137,"95144a0a":57,"9519e9a7":118,"954024fc":95,"95931a29":123,"95f54999":72,"965ce485":56,"96d9edea":115,"9730d1ec":72,"9739fc57":104,"9822ac39":82,"9849a9d2":82,"98bc76b8":71,"999a3dfc":65,"99ba72ce":58,"9a82fd9d":64,"9b2f8ed0":59,"9b425f52":58,"9cc80f1f":131,"9d560425":71,"9dd6ae53":108,"9e6ad2e7":109,"9e9b30a4":108,"a07c11dc":111,"a32f9ac3":56,"a572e73d":97,"a5a80cae":112,"a628b9fd":137,"a6c8f253":89,"a6e3d3f2":115,"a7d43ef3":115,"a87806b5":138,"a96cfa4f":60,"a9baedce":147,"aa0e9637":94,"ab065a32":73,"ab60591e":96,"ac5ef9c9":149,"acc2b054":95,"ad623f59":111,"adcb625f":84,"ae9d1716":92,"af0c6497":112,"afe4d16e":153,"b0025afb":55,"b0c65867":74,"b10440ff":75,"b141ee15":69,"b1496c9e":129,"b167ce68":139,"b1ad7f4c":108,"b2de9a02":63,"b32bb787":94,"b3548324":86,"b3827e0b":66,"b38a8c1a":101,"b41eaaa0":101,"b465ea51":64,"b543b650":139,"b5adfbfa":98,"b5e7be07":56,"b737a313":111,"b8154544":77,"b84efe0e":56,"b85611f9":110,"b9b7ab76":131,"b9bdcd0c":62,"b9ff8d0a":106,"bb0917f6":106,"bb308132":110,"bbcbd7ef":92,"bbfbdc39":75,"bc08ec35":100,"bc16634a":113,"bc5433eb":95,"bc5f6c4d":106,"bcb45843":141,"bd5f78b1":64,"bde6ca6e":70,"be4ae6e4":110,"c02bb8b3":54,"c1118e87":79,"c11e9496":95,"c1592453":57,"c1870e60":136,"c1d0acd3":69,"c25afaad":63,"c290b6ef":92,"c29b6c49":109,"c3ae3b05":56,"c43e05b2":113,"c45e03f3":131,"c4ea9a2a":144,"c5cc0507":137,"c6a683b7":109,"c6ee3128":87,"c74e575d":109,"c7891ae1":71,"c7defcd7":109,"c7e10655":84,"c85fef4f":115,"c86288db":106,"caac0867":112,"cabb6f8e":123,"cb1d8930":103,"cc13b147":73,"ccf16e7b":135,"cd8aa230":121,"cdc959f1":27,"cde2eb8f":63,"cf946b1b":107,"d01ee212":146,"d0fabb48":106,"d131815b":59,"d151bbd8":111,"d1b26ff7":81,"d26ec4eb":65,"d2777ac7":145,"d408beb9":93,"d463a8ed":55,"d4fc950a":70,"d5aa7ec2":126,"d60089fe":111,"d677ef54":134,"d71eb694":115,"d87dc373":101,"d9db9361":151,"dafec19c":118,"dbe5cef5":58,"dc7c63e7":111,"dcc73a99":63,"dd386244":72,"ddfb7ce5":108,"df16a5f9":121,"e0437c1d":123,"e0d6072c":120,"e0fff52a":107,"e158d937":153,"e16f2ede":134,"e22d5051":117,"e2850b98":70,"e322e12c":82,"e4636d3f":111,"e4ff76d4":53,"e580aa69":60,"e662acec":106,"e6876b96":102,"e6cde1e2":59,"e722c0f0":69,"e7925a2e":88,"e8b14225":84,"e8b80c54":88,"e8c064c6":71,"e8c197cc":116,"e909107f":126,"e9726222":109,"e9894cbb":79,"e9a27dbd":125,"e9c1400a":108,"e9f3e38c":98,"ea83ba18":142,"ebc2be8c":104,"ec19e2e1":119,"ec6eaeb1":59,"ec79e6f3":109,"ecf55e68":90,"ed159e03":73,"ee8cbdf1":106,"ee9d675a":143,"ef0baae5":76,"ef3a9b87":60,"f00c6fe7":133,"f06cbf8e":59,"f0b03a13":119,"f0ba2e64":46,"f0c86e60":67,"f0ed4d30":74,"f1171a59":86,"f14da08e":101,"f18dc047":113,"f1bc33dd":56,"f214f7a7":81,"f22c1840":70,"f28df41f":104,"f31dd3cb":123,"f3221852":123,"f357b479":114,"f35b2476":101,"f36f889b":59,"f3c6fe48":107,"f419aa9b":112,"f429357f":134,"f4532262":59,"f567ab25":101,"f63d5271":128,"f67f3acc":98,"f73043c7":93,"f7dc0323":138,"f83f7a57":54,"f8bf4b7f":121,"f953d61a":70,"fbe97bbc":98,"fc08a1c9":96,"fca6f22b":57,"fdd5c764":73,"fe4bb86d":67,"ff5d64c9":72,"ff6ebaaa":86};
+
+</script>
+<script>
 // Boot, the frame loop, the player's hands (touch, keys, tilt, voice), saving, and time away.
 // Everything here talks to the page; the simulation itself knows nothing about it.
 (function () {
   'use strict';
   const M = globalThis.MOTE, U = M.U, D = M.DATA;
-  const BUILD = '20261125-021432';
+  const BUILD = '20261125-123526';
   const SAVE_KEY = 'mote-save', BACKUP_KEY = 'mote-save-before-import';
   const qs = new URLSearchParams(location.search);
 
@@ -7015,6 +6693,8 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     // Settings that depend on this device: sound follows the save; sensors show what is really on.
     const st = state.settings;
     st.tilt = app.sensors.tilt; st.mic = app.sensors.mic;
+    if (st.voice === undefined) st.voice = true;
+    hush();
     if (app.audio) { if (app.audio.reset) app.audio.reset(); app.audio.setVolume(st.volume); app.audio.duck(0); }
     if (M.Render && M.Render.reset) M.Render.reset(app.sim);
     if (M.UI && M.UI.reset) M.UI.reset();
@@ -7091,7 +6771,6 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
       const st = app.sim.s.settings;
       if (st.tilt) enableTilt(true).then(ok => { st.tilt = ok; });
       if (st.mic) enableMic(true).then(ok => { st.mic = ok; });
-      if (st.speak) primeSpeech();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});   // ask not to be cleared out after a quiet week
     }
   };
@@ -7102,43 +6781,54 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
   }
   function letSleep() { if (lock) { const l = lock; lock = null; l.release().catch(() => {}); } }
 
-  let voice = null, utter = null, speakId = 0, duckTimer = 0;
-  function pickVoice() {
-    if (voice || !window.speechSynthesis) return voice;
-    const vs = speechSynthesis.getVoices();
-    const want = [/Daniel/i, /UK English Male/i, /Ryan/i, /George/i, /Arthur/i, /Oliver/i, /Thomas/i];
-    for (const re of want) { const v = vs.find(x => re.test(x.name) && /^en/i.test(x.lang)); if (v) return (voice = v); }
-    return (voice = vs.find(x => /^en-GB/i.test(x.lang)) || vs.find(x => /^en/i.test(x.lang)) || null);
-  }
-  // Phones only let a page speak if its first word was spoken during a touch.
-  function primeSpeech() {
-    if (!window.speechSynthesis) return;
-    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* no voice here */ }
-  }
+  // The narrator's voice: recorded lines (see tools/make_voice.py), fetched as they are needed.
+  // A line with no recording is shown and not spoken.
+  const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16).padStart(8, '0'); };
+  const clips = new Map();
+  let vId = 0, vSrc = null, vEl = null, vGain = null, duckTimer = 0;
   function hush() {
-    speakId++;
+    vId++;
     clearTimeout(duckTimer);
-    if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch (e) { /* nothing speaking */ } }
+    if (vSrc) { try { vSrc.stop(); } catch (e) { /* already over */ } vSrc = null; }
+    if (vEl) { try { vEl.pause(); } catch (e) { /* gone */ } vEl = null; }
     if (app.audio) app.audio.duck(0);
   }
-  function say(line) {
-    const dur = M.Narrator.duration(line.text);
-    if (M.UI && M.UI.caption) M.UI.caption(line.text, line.pri, dur);
-    if (!app.sim.s.settings.speak || !window.speechSynthesis || !app.awake) return;
+  async function speak(key, dur) {
+    hush();
+    const id = vId, url = 'voice/' + key + '.mp3', vol = app.sim.s.settings.volume;
+    const done = () => { if (id === vId && app.audio) app.audio.duck(0); };
+    const begin = () => { if (app.audio) app.audio.duck(0.6); mic.deafUntil = performance.now() + dur * 1000 + 600; clearTimeout(duckTimer); duckTimer = setTimeout(done, (dur + 2) * 1000); };
+    if (running()) {
+      try {
+        let buf = clips.get(key);
+        if (!buf) {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error('no clip');
+          buf = await app.actx.decodeAudioData(await r.arrayBuffer());
+          if (clips.size > 10) clips.delete(clips.keys().next().value);
+          clips.set(key, buf);
+        }
+        if (id !== vId) return;                 // something else was said while this was loading
+        if (!vGain) { vGain = app.actx.createGain(); vGain.connect(app.actx.destination); }
+        vGain.gain.value = Math.min(1, vol * 1.25);
+        const src = app.actx.createBufferSource();
+        src.buffer = buf; src.connect(vGain); src.onended = done; src.start();
+        vSrc = src; begin();
+        return;
+      } catch (e) { if (id !== vId) return; /* opened straight from a folder: fall through to a plain player */ }
+    }
     try {
-      hush();
-      const id = speakId, u = new SpeechSynthesisUtterance(line.text.replace(/"/g, ''));
-      const v = pickVoice();
-      if (v) u.voice = v;
-      u.rate = 0.96; u.pitch = 0.9; u.volume = 1;
-      // The music dips under the voice, and must come back whatever the browser does or forgets to do.
-      const done = () => { if (id === speakId && app.audio) app.audio.duck(0); };
-      u.onstart = () => { if (id === speakId && app.audio) app.audio.duck(0.55); };
-      u.onend = u.onerror = done;
-      utter = u;                      // held, so it is not tidied away before it finishes
-      duckTimer = setTimeout(done, (dur + 4) * 1000);
-      speechSynthesis.speak(u);
-    } catch (e) { /* speech is a nicety */ }
+      const a = new Audio(url);
+      a.volume = Math.min(1, vol); a.onended = a.onerror = done;
+      vEl = a; await a.play(); if (id === vId) begin();
+    } catch (e) { done(); }
+  }
+  function say(line) {
+    const st = app.sim.s.settings, name = app.sim.s.c.name;
+    const key = fnv(name ? line.text.split(name).join('{name}') : line.text), clip = st.voice && app.awake && M.VOICE ? M.VOICE[key] : 0;
+    const dur = Math.max(M.Narrator.duration(line.text), clip ? clip / 10 + 1.2 : 0);
+    if (M.UI && M.UI.caption) M.UI.caption(line.text, line.pri, dur);
+    if (clip) speak(key, clip / 10);
   }
 
   function buzz(pattern) {
@@ -7287,7 +6977,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     if (key === 'tilt') value = value ? await enableTilt() : (disableTilt(), false);
     else if (key === 'mic') value = value ? await enableMic() : (disableMic(), false);
     else if (key === 'volume') { value = U.clamp01(+value); if (app.audio) app.audio.setVolume(value); }
-    else if (key === 'speak') { if (value) primeSpeech(); else hush(); }
+    else if (key === 'voice') { if (!value) hush(); }
     st[key] = value;
     app.save();
     return value;
@@ -7485,6 +7175,7 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
     const saved = qs.has('fresh') ? null : load();
     const seed = qs.has('seed') ? +qs.get('seed') : (Math.random() * 4294967295) >>> 0;
     app.sim = new M.Sim(saved || M.newState(seed));
+    if (app.sim.s.settings.voice === undefined) app.sim.s.settings.voice = true;
     app.nar = new M.Narrator(app.sim);
     if (M.Render) M.Render.init(canvas, app);
     if (M.UI) M.UI.init(app);
@@ -7517,14 +7208,12 @@ ul.journal p { margin: 4px 0 0; font: italic 400 16px/1.45 'Newsreader', Georgia
       }
     });
     window.addEventListener('pagehide', () => app.save());
-    if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => { voice = null; };
 
     last = performance.now();
     requestAnimationFrame(frame);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  void utter;
 })();
 
 </script>
